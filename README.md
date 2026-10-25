@@ -1,66 +1,66 @@
 # ⚡ Autonomous Mobile AGI Skill for Google Antigravity
 
 High-velocity Autonomous Mobile AGI Engine for Android (Termux) & Google Antigravity.
-Transforms your agent with **Sub-Millisecond UI Control**, **SQLite World Model**, **Dynamic In-RAM Tool Synthesis**, and **Cross-Domain Goal Autopilot**.
+Equips your agent with **Sub-Millisecond UI Control**, **SQLite World Model**, **Dynamic In-RAM Tool Synthesis**, and **Cross-Domain Goal Autopilot**.
 
 ---
 
 ## ⚡ 1-Step Quick Install
 
-Jalankan perintah ini di Termux:
+Run this single command in Termux:
 
 ```bash
 git clone https://github.com/papertop221/autonomous-mobile-agi.git && cd autonomous-mobile-agi && ./install.sh
 ```
 
-> **Catatan**: Skrip di atas otomatis menyalin skill ke `~/.agents/skills/autonomous-mobile-agi/`, mengompilasi core native C, dan mendaftarkan perintah CLI (`agi`, `agi-ctrl`, `agi-memory`). Antigravity akan langsung mendeteksi skill ini secara otomatis.
+> **Automated**: The script deploys the skill directly into Antigravity's discovery directory (`~/.agents/skills/autonomous-mobile-agi/`), compiles the native C core, and sets up global CLI commands (`agi`, `agi-ctrl`, `agi-memory`). Antigravity detects it immediately.
 
 ---
 
-## 🚀 Cara Pemakaian
+## 🚀 Usage Guide
 
-### 1. Di Chat Antigravity (Natural Language)
-Cukup berikan instruksi langsung ke Antigravity di chat:
-- *"Buka WA dan kirim pesan ke Gilang"*
-- *"Analisis penggunaan RAM HP dan bersihkan cache"*
-- *"Cari video lofi coding di YouTube"*
+### 1. In Antigravity Chat (Natural Language)
+Issue direct instructions in plain English to the agent:
+- *"Open WhatsApp and send 'Ready!' to Alex"*
+- *"Inspect RAM usage and clear system cache"*
+- *"Search for lofi coding live streams on YouTube"*
 
-Antigravity akan otomatis mengaktifkan skill `autonomous-mobile-agi` dan mengeksekusinya dalam 1 turn.
+Antigravity automatically activates the `autonomous-mobile-agi` skill and executes the request deterministically in a single turn.
 
 ---
 
-### 2. Melalui Terminal CLI
+### 2. Via Terminal CLI
 
-| Kebutuhan | Perintah | Contoh |
+| Task | Command | Example |
 | :--- | :--- | :--- |
-| **Selesaikan Goal Bebas** | `agi solve "<tujuan>"` | `agi solve "buka wa cari Gilang"` |
-| **Preview Rencana (Dry Run)**| `agi plan "<tujuan>"` | `agi plan "buka yt cari tutorial c"` |
-| **Kontrol UI Android Cepat** | `agi-ctrl do "<action>"` | `agi-ctrl do "open yt" "tap-set 'Search' 'agi' --enter" "done"` |
-| **Simpan / Baca Memori** | `agi-memory <set\|get\|list>` | `agi-memory set "teman" '{"nama": "Budi"}'` |
-| **Kompilasi C Mikro di RAM** | `agi-exec c '<code>'` | `agi-exec c 'int main(){printf("Fast!\n");return 0;}'` |
+| **Autonomous Goal Solver** | `agi solve "<goal>"` | `agi solve "open whatsapp search Alex"` |
+| **Cognitive Dry-Run Plan** | `agi plan "<goal>"` | `agi plan "open youtube search rust tutorial"` |
+| **Native 1-Packet UI Control**| `agi-ctrl do "<action>"` | `agi-ctrl do "open yt" "tap-set 'Search' 'agi' --enter" "done"` |
+| **Read/Write World Model** | `agi-memory <set\|get\|list>`| `agi-memory set "partner" '{"name": "Alex"}'` |
+| **In-RAM Ephemeral C Tool** | `agi-exec c '<code>'` | `agi-exec c 'int main(){printf("Fast!\n");return 0;}'` |
 
 ---
 
-## 🏛️ Struktur File Skill
+## 🏛️ Skill Directory Structure
 
 ```
 ~/.agents/skills/autonomous-mobile-agi/
-├── SKILL.md                          # Router utama Antigravity
+├── SKILL.md                          # Antigravity progressive router
 ├── modules/
-│   ├── agi-cognitive-engine.md       # Teori & penalaran kognisi AGI
-│   ├── android-control.md            # Kontrol UI sub-millisecond (agi-ctrl)
-│   ├── autonomous-learning.md        # Observasi pasif & rule of no regression
-│   ├── execution-rules.md            # Eksekusi deterministik 1-turn
-│   └── innovative-solver.md          # 4-Layer architectural bypass
+│   ├── agi-cognitive-engine.md       # Cognitive reasoning & world model
+│   ├── android-control.md            # Sub-millisecond UI effector (agi-ctrl)
+│   ├── autonomous-learning.md        # Passive sensing & no-regression rule
+│   ├── execution-rules.md            # Deterministic 1-turn batching rules
+│   └── innovative-solver.md          # 4-Layer architectural bypass matrix
 └── scripts/
-    ├── agi_kernel.py                 # Core goal solver (`agi`)
+    ├── agi_kernel.py                 # Core goal autopilot (`agi`)
     ├── agi_memory.py                 # SQLite memory database (`agi-memory`)
-    ├── ephemeral_runner.sh           # In-RAM compiler (`agi-exec`)
-    ├── fast_probe.sh                 # Codebase reconnaissance (`agi-probe`)
-    └── learn.sh                      # Error distillation logger (`agi-learn`)
+    ├── ephemeral_runner.sh           # In-RAM polyglot compiler (`agi-exec`)
+    ├── fast_probe.sh                 # Throttled codebase reconnaissance (`agi-probe`)
+    └── learn.sh                      # Autonomous error distillation (`agi-learn`)
 ```
 
 ---
 
 ## 📄 License
-MIT License. Crafted for extreme autonomy and velocity.
+MIT License. Engineered for maximum autonomy, deterministic reliability, and extreme speed.
