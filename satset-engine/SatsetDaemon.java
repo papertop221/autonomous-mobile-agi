@@ -208,6 +208,11 @@ public class SatsetDaemon {
         addAlias("pz", "com.zomdroid", "");
         addAlias("endoparasitic", "com.endoparastic.vocies61", "");
         addAlias("voices", "com.endoparastic.vocies61", "");
+        addAlias("jago", "com.jago.digitalBanking", "com.jago.digitalBanking/.presentation.onboarding.OnboardingActivity");
+        addAlias("bankjago", "com.jago.digitalBanking", "com.jago.digitalBanking/.presentation.onboarding.OnboardingActivity");
+        addAlias("gopay", "com.gojek.app", "");
+        addAlias("ovo", "ovo.id", "");
+        addAlias("dana", "id.dana", "");
         addAlias("mornye", "com.zarz.mornye", "");
         addAlias("swordigo", "com.touchfoo.swordigo", "");
     }
@@ -3103,18 +3108,28 @@ public class SatsetDaemon {
         Runtime.getRuntime().addShutdownHook(new Thread(SatsetDaemon::disconnectInternal));
         startEphemeralReaperThread();
 
+        java.util.concurrent.ExecutorService workerPool = java.util.concurrent.Executors.newFixedThreadPool(
+            8,
+            r -> {
+                Thread t = new Thread(r, "satset-pool-worker");
+                t.setDaemon(true);
+                return t;
+            }
+        );
+
         try (ServerSocket server = new ServerSocket()) {
             server.setReuseAddress(true);
             server.bind(new InetSocketAddress("127.0.0.1", PORT), 64);
-            System.out.println("SatsetDaemon v4 (Zero-Latency Engine & Ephemeral Auto-Reaper) listening on 127.0.0.1:" + PORT);
+            System.out.println("SatsetDaemon v4.2 (Zero-Latency Engine & ThreadPool Server) listening on 127.0.0.1:" + PORT);
 
             try { ensureConnected(); } catch (Throwable t) { t.printStackTrace(System.out); }
 
             while (true) {
                 final Socket client = server.accept();
-                Thread worker = new Thread(() -> handleClient(client), "satset-worker");
-                worker.setDaemon(true);
-                worker.start();
+                try {
+                    client.setTcpNoDelay(true);
+                } catch (Throwable ignored) {}
+                workerPool.execute(() -> handleClient(client));
             }
         } catch (Throwable t) {
             t.printStackTrace(System.err);
