@@ -4,11 +4,12 @@
     <strong>High-Velocity Cognitive Architecture, Episodic World Model & Native Sub-Millisecond Android OS Effector</strong>
   </p>
   <p align="center">
-    <a href="#overview">Overview</a> •
-    <a href="#system-architecture">Architecture</a> •
-    <a href="#core-capabilities">Capabilities</a> •
-    <a href="#cli-suite">CLI Suite</a> •
-    <a href="#benchmarks">Benchmarks</a>
+    <a href="#-overview">Overview</a> •
+    <a href="#-system-architecture">Architecture</a> •
+    <a href="#-installation--setup">Installation & Setup</a> •
+    <a href="#-usage-guide--workflow">Usage Guide</a> •
+    <a href="#-cli-reference">CLI Reference</a> •
+    <a href="#-benchmarks">Benchmarks</a>
   </p>
 </p>
 
@@ -16,7 +17,7 @@
 
 ## 🌟 Overview
 
-**Autonomous Mobile AGI Engine** is a deterministic, high-velocity cognitive execution platform engineered specifically for Android (Termux) and advanced autonomous AI agents.
+**Autonomous Mobile AGI Engine** is a deterministic, high-velocity cognitive execution platform engineered specifically for Android (Termux) and advanced autonomous AI agents (such as Google Antigravity).
 
 By moving past chat gimmicks and rigid command trees, it provides true **General Problem Solving (GPS)**:
 1. **Multi-Domain Goal Autopilot**: Resolves abstract objectives by dynamically orchestrating Linux system commands, in-RAM compilation, and direct Android UI pipelines.
@@ -63,65 +64,151 @@ flowchart TD
 
 ---
 
-## ⚡ Core Capabilities
+## 📦 Installation & Setup
 
-| Capability | Module Reference | Primary Function |
-| :--- | :--- | :--- |
-| **AGI Cognitive Solver** | [`modules/agi-cognitive-engine.md`](skills/autonomous-mobile-agi/modules/agi-cognitive-engine.md) | Abstract goal decomposition, tree-of-thought routing, and causal memory recording. |
-| **Autonomous Learning** | [`modules/autonomous-learning.md`](skills/autonomous-mobile-agi/modules/autonomous-learning.md) | Passive environment sensing, silent profiling, and zero-regression error distillation. |
-| **Lateral Solver & Bypasses** | [`modules/innovative-solver.md`](skills/autonomous-mobile-agi/modules/innovative-solver.md) | 4-Layer architectural bypass (raw sockets, direct SQLite mutations, deep links). |
-| **Sub-Millisecond UI Engine** | [`modules/android-control.md`](skills/autonomous-mobile-agi/modules/android-control.md) | 1-Packet TCP Android control (`agi-ctrl do ...`), atomic input, and zero-leak memory management. |
-| **Deterministic 1-Turn Rules** | [`modules/execution-rules.md`](skills/autonomous-mobile-agi/modules/execution-rules.md) | Parallel batching, chained self-healing (`&&`/`||`), and strict context throttling. |
+### Prerequisites
+- **Android Device**: Android 10+ (Tested on Moto G86 Power 5G, Snapdragon / Dimensity).
+- **Environment**: [Termux](https://termux.dev) (F-Droid version recommended).
+- **Dependencies**: Clang, Python 3, Git, SQLite3.
+
+### 1. Quick Install Dependencies
+Run inside Termux:
+```bash
+pkg update -y && pkg install -y clang python git sqlite ripgrep
+```
+
+### 2. Clone Repository
+```bash
+git clone https://github.com/papertop221/autonomous-mobile-agi.git ~/autonomous-mobile-agi
+cd ~/autonomous-mobile-agi
+```
+
+### 3. Build & Install Native Core Engine
+Compile the ultra-fast C CLI and deploy the binaries to `~/.local/bin`:
+```bash
+# Ensure local bin exists and is in PATH
+mkdir -p ~/.local/bin ~/.agents/skills ~/.agents/agi ~/.agents/knowledge
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# Compile native effector client
+clang -O3 mobile-core-engine/satset.c -o ~/.local/bin/satset
+ln -sf ~/.local/bin/satset ~/.local/bin/agi-ctrl
+
+# Deploy skills to Antigravity / Gemini agent path
+cp -r skills/autonomous-mobile-agi ~/.agents/skills/
+
+# Setup global CLI links
+ln -sf ~/.agents/skills/autonomous-mobile-agi/scripts/agi_kernel.py ~/.local/bin/agi
+ln -sf ~/.agents/skills/autonomous-mobile-agi/scripts/agi_kernel.py ~/.local/bin/agi-run
+ln -sf ~/.agents/skills/autonomous-mobile-agi/scripts/agi_memory.py ~/.local/bin/agi-memory
+ln -sf ~/.agents/skills/autonomous-mobile-agi/scripts/ephemeral_runner.sh ~/.local/bin/agi-exec
+ln -sf ~/.agents/skills/autonomous-mobile-agi/scripts/fast_probe.sh ~/.local/bin/agi-probe
+ln -sf ~/.agents/skills/autonomous-mobile-agi/scripts/learn.sh ~/.local/bin/agi-learn
+
+chmod +x ~/.local/bin/*
+```
+
+### 4. Initialize Local World Model (Database)
+```bash
+agi-memory init
+```
+
+### 5. Start Background Accessibility Daemon
+Start the sub-millisecond daemon (communicating via `127.0.0.1:19888`):
+```bash
+# Start the daemon in the background (or run mobile-core-engine/adb-autoconnect if using wireless debugging)
+nohup app_process -Djava.class.path=mobile-core-engine/SatsetDaemon.java /system/bin com.android.commands.satset.SatsetDaemon >/dev/null 2>&1 &
+
+# Verify connection
+agi-ctrl status
+# Expected output: OK v4 connected=true ...
+```
 
 ---
 
-## 🚀 Unified CLI Suite
+## 💡 Usage Guide & Workflow
 
-All binaries and symlinks are available globally in `~/.local/bin/`:
+### Workflow 1: Autonomous Goal Autopilot (General Problem Solving)
+Direct the cognitive engine to accomplish goals without writing step-by-step scripts:
 
-### 1. Cognitive Goal Autopilot (`agi` / `agi-run`)
 ```bash
-# Execute complex multi-step objectives autonomously
-agi solve "search photography accounts on instagram and optimize ram afterwards"
+# General multi-step execution (Planning -> Dispatch -> Verify -> Learn)
+agi solve "buka wa cari Gilang dan kirim pesan siap bro"
 
-# Dry-run cognitive planning and inspection
-agi plan "send status report to team on whatsapp"
+# System maintenance and cleanup goal
+agi solve "cek pemakaian memori lalu bersihkan cache aplikasi"
 ```
 
-### 2. World Model & Episodic Memory (`agi-memory`)
+To preview the decomposed execution plan before running:
 ```bash
-# Store system entity or context
-agi-memory set "profile.owner" '{"alias": "User", "role": "Architect"}' "identity"
+agi plan "buka youtube cari lofi beats"
+```
 
-# Retrieve structured knowledge
-agi-memory get "profile.owner"
+### Workflow 2: Managing Long-Term World Model (`agi-memory`)
+Teach the engine your personal aliases, frequent contacts, or hardware profiles:
 
-# List world entities
+```bash
+# Save user profile or contact
+agi-memory set "contact.gilang" '{"phone": "08123456789", "relation": "partner"}' "contacts"
+
+# Retrieve information instantly (<1ms)
+agi-memory get "contact.gilang"
+
+# List stored knowledge
 agi-memory list
 ```
 
-### 3. Native In-RAM Tool Synthesis (`agi-exec`)
+### Workflow 3: On-the-Fly Dynamic Tool Synthesis (`agi-exec`)
+Execute custom C micro-programs compiled directly in RAM without writing temporary files to disk:
+
 ```bash
-# Compile and run native C code in RAM with zero storage footprint
 agi-exec c '
 #include <stdio.h>
-int main() { printf("Instant native micro-tool execution\n"); return 0; }
+int main() {
+    printf("Executed directly from RAM in <5ms!\n");
+    return 0;
+}
 '
 
-# Micro-benchmark any shell or binary command
+# Micro-benchmark command latency
 agi-exec bench "agi-ctrl status"
 ```
 
-### 4. Native Android OS Control Driver (`agi-ctrl`)
-```bash
-# 1-Packet atomic search input on Android (~8ms total dispatch)
-agi-ctrl do "open youtube" "tap-set 'Search || Telusuri || id:search' 'autonomous agents' --enter" "done"
+### Workflow 4: Direct Sub-Millisecond Android UI Control (`agi-ctrl`)
+For precision UI automation using 1-Packet atomic pipelines:
 
-# UI inspection & hardware key events
+```bash
+# 1-Packet Search Pipeline (Open -> Tap Search -> Type Query -> Submit -> Done)
+agi-ctrl do "open youtube" "tap-set 'Search || Telusuri || id:search' 'autonomous mobile agi' --enter" "done"
+
+# UI Element Discovery
 agi-ctrl ui
+
+# Hardware Navigation
 agi-ctrl back
-agi-ctrl status
+agi-ctrl home
+agi-ctrl recents
 ```
+
+---
+
+## ⚡ CLI Reference Cheatsheet
+
+| Command | Arguments | Description |
+| :--- | :--- | :--- |
+| `agi solve` | `"<abstract_goal>"` | Autonomous multi-domain goal solver with self-healing |
+| `agi plan` | `"<abstract_goal>"` | Preview decomposed execution plan and target domains |
+| `agi-ctrl do` | `"<cmd1>" "<cmd2>" ...` | 1-Packet batch UI actions over native raw socket |
+| `agi-ctrl ui` | `[filter]` | Dump interactive UI hierarchy tree |
+| `agi-ctrl status` | - | Check daemon connectivity, uptime, and latency |
+| `agi-memory set` | `<key> <json> [cat]` | Insert or update entity in SQLite World Model |
+| `agi-memory get` | `<key>` | Fetch entity by unique key |
+| `agi-memory list` | `[category]` | List stored entities and metadata |
+| `agi-exec c` | `"<code>"` | Compile and run ephemeral C code in RAM (`clang -O3`) |
+| `agi-exec bench` | `"<cmd>"` | Benchmark execution duration in milliseconds |
+| `agi-probe` | `<dir> [pattern]` | Low-token codebase reconnaissance with output limits |
+| `agi-learn` | `<dom> <trig> <sol>` | Record self-discovered bypass or error post-mortem |
 
 ---
 
