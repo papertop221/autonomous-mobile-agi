@@ -1,57 +1,64 @@
 ---
 name: extreme-efficiency
 description: >-
-  Extreme speed, minimum-token, zero-bloat ("anti bertele-tele") execution protocol.
-  Enforces 1-turn tool batching, surgical context reads, silent/capped command output,
-  atomic native operations, and ultra-concise responses. Core rules are already active
-  in GEMINI.md; read this SKILL.md only when orchestrating complex multi-step refactors,
-  audits, or heavy automation workflows.
+  Extreme speed, minimum-token, zero-bloat ("anti bertele-tele") execution protocol v2.
+  Enforces deterministic 1-turn tool batching, preemptive failure-recovery chained commands,
+  surgical context bounding, silent output streaming caps, native memory-first operations,
+  and dense ultra-concise user responses.
 ---
 
-# ⚡ EXTREME EFFICIENCY PROTOCOL (Hemat Waktu & Token — Zero Basa-Basi)
+# ⚡ EXTREME EFFICIENCY PROTOCOL v2 (Zero-Waste, Maximum Throughput)
 
-Tujuan utama: **Selesaikan setiap task dengan jumlah turn paling sedikit, eksekusi tercepat, dan pemakaian token (input + thinking + output) paling minimal.**
-
----
-
-## 1. Eksekusi 1-Turn (One-Shot Tool Batching)
-
-- **DILARANG mencicil tool call berurutan** jika bisa digabung dalam **1 turn**:
-  - Panggil beberapa `read_file` / `edit_file` / `write_file` **secara paralel dalam 1 respons**.
-  - Gabungkan perintah shell (`grep`, `sed`, `build`, `test`, `verify`) ke dalam **1 command komposit** (`cmd1 && cmd2 && cmd3`).
-- **Self-Verify di Turn yang Sama**:
-  - Jangan gunakan turn tambahan hanya untuk mengecek hasil. Sertakan verifikasi langsung di akhir command eksekusi (contoh: `clang -O3 app.c -o app && ./app --test`).
-- **Kontrol HP Android (`satset` v4)**:
-  - Selalu bungkus seluruh alur kerja dalam **1 panggilan `satset do "..." "done"`** (1 paket TCP, `<0.2ms` event wakeup, 0 `sleep`).
+Tujuan utama: **Menuntaskan setiap perintah dalam turn minimum mutlak, waktu eksekusi sub-detik, dan rasio token (input + thinking + output) paling hemat dengan akurasi 100%.**
 
 ---
 
-## 2. Surgical Context & Output Capping (Hemat Input Tokens)
+## 1. Deterministic 1-Turn Pipeline (Batching & Preemptive Recovery)
 
-- **Jangan Baca File Utuh Jika Hanya Butuh Sebagian**:
-  - Gunakan `StartLine` dan `EndLine` pada `read_file`.
-  - Jika belum tahu barisnya, cari lokasi pastinya dengan `rg -n` / `grep -n` dalam 1 command singkat, atau gunakan helper [`fast_probe.sh`](./scripts/fast_probe.sh).
-- **Batasi Output Command (`stdout`/`stderr`)**:
-  - Selalu gunakan flag quiet/ringkas (`-q`, `--no-pager`, `--short`) atau batasi output (`| head -n 40`, `| tail -n 30`) agar log panjang tidak memenuhi context window.
-- **Hindari Polling**:
-  - Jangan pernah melakukan loop polling manual untuk task background/subagent; mengandalkan notifikasi event-driven.
-
----
-
-## 3. Zero Basa-Basi (Hemat Thinking & Output Tokens)
-
-- **Internal Thinking (`thinking`)**:
-  - Langsung menuju solusi terpendek. Jangan mengulang isi file/command di dalam thinking atau berputar-putar menganalisis hal sepele.
-- **Respons ke User**:
-  - **0 kalimat pembuka/penutup basa-basi** (*"Baik, saya akan..."*, *"Tentu! Berikut..."*, *"Semoga membantu!"* -> **HAPUS SEMUA**).
-  - **To-the-point**: Langsung berikan hasil akhir, status eksekusi, dan link file (`[nama_file](file:///path)`).
-  - Gunakan poin pendek atau tabel ringkas hanya jika diperlukan. Jangan menjelaskan ulang kode baris demi baris kecuali diminta.
+- **Parallel Tool Batching**:
+  - Dilarang memisahkan read/edit/write yang independen ke turn terpisah. Eksekusi semua tool call dalam **1 respons paralel**.
+- **Chained Composite Commands (`&&` / `||`)**:
+  - Gabungkan aksi utama, verifikasi, dan pemulihan kegagalan dalam 1 baris shell:
+    ```bash
+    cmd_utama && verifikasi_cepat || perbaikan_instan
+    ```
+- **Self-Healing di Turn yang Sama**:
+  - Sertakan assertion/pemeriksaan error langsung tanpa menunggu turn berikutnya dari user (contoh: `clang -O3 app.c -o app && ./app --version || tail -n 20 build.log`).
+- **Android & Mobile Ops (`satset` v4)**:
+  - Seluruh alur (buka, navigasi, input, verifikasi, purge) **WAJIB** berada dalam 1 paket TCP:
+    ```bash
+    satset do "open <app>" "tap-set '<target>' '<text>' --enter" "done"
+    ```
 
 ---
 
-## 4. Shortcut Ekstrem (Native & In-Memory First)
+## 2. Surgical Context Bounds & Output Capping (Zero Context Pollution)
 
-- Gunakan tool tercepat yang tersedia di sistem:
-  - Manipulasi teks/JSON/file massal: `rg`, `sed -i`, `awk`, `jq`, `perl -pi -e`, atau `python3 -c` one-liner dibandingkan membaca/menulis puluhan file manual lewat LLM.
-  - Kompilasi & binary: gunakan native binary (`clang -O3 -flto`) untuk tool yang sering dipanggil berulang kali.
-  - Recon cepat direktori/project: jalankan [`scripts/fast_probe.sh`](./scripts/fast_probe.sh) `<path> [pattern]`.
+- **Targeted Line Bounding**:
+  - Jangan membaca file tanpa rentang baris (`StartLine`/`EndLine`). Gunakan `rg -n` atau `head`/`tail` terlebih dahulu.
+- **Strict Output Throttling**:
+  - Batasi seluruh output shell (`| head -n 35`, `| tail -n 25`, `-q`, `--silent`). Jangan biarkan ribuan baris log mencemari context window.
+- **Direct Native Filter**:
+  - Gunakan `jq`, `awk`, `sed`, atau `python3 -c` untuk mengekstrak data langsung di shell daripada memuat raw data besar ke konteks LLM.
+- **Zero Polling Loop**:
+  - Dilarang membuat loop sleep/polling manual. Andalkan notifikasi reaktif sistem asynchronous atau timeout deterministik.
+
+---
+
+## 3. High-Density Thinking & Zero-Bloat Response
+
+- **Surgical Thinking**:
+  - Langsung tentukan jalur terpendek (algoritma/command/file target). Jangan mengulang transkrip, menduplikasi isi file, atau berwacana panjang.
+- **Response Format (Dense & Action-Oriented)**:
+  - **Dilarang keras**: Kalimat basa-basi pembuka (*"Tentu!", "Baik saya akan..."*) dan penutup (*"Semoga membantu!", "Ada yang bisa dibantu lagi?"*).
+  - Berikan status inti, metrik/perubahan utama, dan link file markdown (`[nama_file](file:///path)`).
+  - Hindari penjelasan kode baris-per-baris kecuali diminta secara spesifik oleh user.
+
+---
+
+## 4. Native & In-Memory Execution Hierarchy
+
+Urutan prioritas eksekusi task:
+1. **In-Memory / Native C Binary** (`clang -O3 -flto`, `satset`, socket lokal).
+2. **One-Liner Tooling** (`rg`, `awk`, `sed -i`, `jq`, `python3 -c`).
+3. **Multi-Step Tool Calls** (hanya digunakan jika modifikasi kompleks memerlukan parsing AST/diff per-region).
