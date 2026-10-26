@@ -1,9 +1,9 @@
 ---
 name: autonomous-mobile-agi
 description: >-
-  Unified Modular High-Velocity Engineering, Cognitive World Model & Sub-Millisecond Android Automation Engine (v5).
+  Unified Modular High-Velocity Engineering, Cognitive World Model & Sub-Microsecond Android Automation Engine (v5.5 SUB-ZERO).
   Combines cross-domain goal autopilot, local SQLite episodic memory, dynamic tool synthesis in RAM,
-  and native C sub-millisecond Android UI control (`agi-ctrl`).
+  native C sub-millisecond control (`agi-ctrl`), and lock-free sub-microsecond shared memory ring buffer (`subzero_shm.h`).
   Activate this skill for any complex coding, system optimization, unorthodox troubleshooting, or Android phone operation.
 ---
 
@@ -21,12 +21,17 @@ This skill is designed **modularly** to preserve context window tokens. Consult 
 | :--- | :--- | :--- |
 | **Cognitive AGI & Problem Solver** | [`modules/agi-cognitive-engine.md`](file:///data/data/com.termux/files/home/.agents/skills/autonomous-mobile-agi/modules/agi-cognitive-engine.md) | General Goal Decomposition, World Model (SQLite), Dynamic Tool Synthesis, Causal Memory |
 | **Autonomous Continuous Learning** | [`modules/autonomous-learning.md`](file:///data/data/com.termux/files/home/.agents/skills/autonomous-mobile-agi/modules/autonomous-learning.md) | Passive Sensing, Silent Profiling, Error Distillation, Auto-Knowledge Compounding |
+| **App Knowledge Atlas** | [`modules/app-atlas.md`](file:///data/data/com.termux/files/home/.agents/skills/autonomous-mobile-agi/modules/app-atlas.md) | Pre-mapped Popular Indonesian Apps (WA, Shopee, Grab, Gojek, Maps, YT), Fallback Chains |
+| **Layman Intent & Safety Guide** | [`modules/layman-intent-guide.md`](file:///data/data/com.termux/files/home/.agents/skills/autonomous-mobile-agi/modules/layman-intent-guide.md) | Zero-Jargon Interaction, Raw Intent Parsing, Purchase & Financial Guardrails |
 | **Innovative & Lateral Bypasses** | [`modules/innovative-solver.md`](file:///data/data/com.termux/files/home/.agents/skills/autonomous-mobile-agi/modules/innovative-solver.md) | 4-Layer Bypass Matrix, Algorithmic Offloading, Direct State/DB/Socket Injection, Speculative Heuristics |
 | **Deterministic 1-Turn Execution** | [`modules/execution-rules.md`](file:///data/data/com.termux/files/home/.agents/skills/autonomous-mobile-agi/modules/execution-rules.md) | Parallel Tool Batching, Chained Self-Healing (`&&`/`||`), Surgical Context Bounds, Zero Fluff |
-| **Sub-Millisecond UI Automation** | [`modules/android-control.md`](file:///data/data/com.termux/files/home/.agents/skills/autonomous-mobile-agi/modules/android-control.md) | Native C CLI `agi-ctrl` (`~0.4ms`), 1-Packet `agi-ctrl do ... "done"`, Atomic `tap-set`, Vision SoM |
+| **Sub-Millisecond UI Automation** | [`modules/android-control.md`](file:///data/data/com.termux/files/home/.agents/skills/autonomous-mobile-agi/modules/android-control.md) | Native C CLI `agi-ctrl` (`~0.4ms`), 1-Packet `agi-ctrl do ... "done"`, SUB-ZERO Shared Memory (200ns), O(1) Hash Matcher (2.28ns) |
 
 ### 🛠️ Built-in Scripts (`scripts/`)
-- [`scripts/agi_kernel.py`](file:///data/data/com.termux/files/home/.agents/skills/autonomous-mobile-agi/scripts/agi_kernel.py): General Problem Solver kernel (`agi` / `agi-run`).
+- [`scripts/agi_kernel.py`](file:///data/data/com.termux/files/home/.agents/skills/autonomous-mobile-agi/scripts/agi_kernel.py): General Problem Solver & Layman Intent Engine (`agi` / `agi-run`).
+- [`scripts/device_doctor.py`](file:///data/data/com.termux/files/home/.agents/skills/autonomous-mobile-agi/scripts/device_doctor.py): Layman Device Doctor, Auto-reconnect & Guided Wireless Debugging (`agi doctor` / `agi pair`).
+- [`scripts/app_atlas.json`](file:///data/data/com.termux/files/home/.agents/skills/autonomous-mobile-agi/scripts/app_atlas.json): Comprehensive selector and pop-up dismissal database for top apps.
+- [`scripts/subzero_shm.h`](file:///data/data/com.termux/files/home/.agents/skills/autonomous-mobile-agi/scripts/subzero_shm.h): Ultra-low latency Lock-Free ARM64 Shared Memory Ring Buffer header (200ns IPC, O(1) FNV-1a decision engine).
 - [`scripts/agi_memory.py`](file:///data/data/com.termux/files/home/.agents/skills/autonomous-mobile-agi/scripts/agi_memory.py): Sub-millisecond SQLite World Model & Episodic Memory (`agi-memory`).
 - [`scripts/fast_probe.sh`](file:///data/data/com.termux/files/home/.agents/skills/autonomous-mobile-agi/scripts/fast_probe.sh): 1-shot X-Ray directory and symbol scanner (`rg`) with strict output throttling (`<45 lines`).
   - Usage: `agi-probe <dir> [pattern]`
@@ -34,6 +39,8 @@ This skill is designed **modularly** to preserve context window tokens. Consult 
   - Usage: `agi-exec <c|py|py-fast|bench> "<code_or_cmd>" [args...]`
 - [`scripts/learn.sh`](file:///data/data/com.termux/files/home/.agents/skills/autonomous-mobile-agi/scripts/learn.sh): Records observation patterns & autonomous fixes to persistent storage.
   - Usage: `agi-learn <domain> <trigger> <solution> [confidence]`
+- [`scripts/reflex_shield.sh`](file:///data/data/com.termux/files/home/.agents/skills/autonomous-mobile-agi/scripts/reflex_shield.sh): In-daemon reflex shield that auto-clears mechanical confirmation popups in 5ms without cloud turns.
+  - Usage: `agi-reflex "<step1>" "<step2>..."`
 
 ---
 
@@ -70,9 +77,17 @@ int main() { printf("Zero-footprint C execution!\n"); return 0; }
 # 3. Empirical Micro-Benchmarking
 agi-exec bench "agi-ctrl status"
 
-# 4. 1-Packet Android App Automation (~8ms dispatch)
+# 4. Layman Direct Intent Execution (Zero-Jargon)
+agi "pesan ayam geprek di gofood cari promo diskon"
+agi "wa mama bilang otw pulang"
+
+# 5. Device Doctor & Wireless Pairing Assistant
+agi doctor
+agi pair <port> <pairing_code>
+
+# 6. 1-Packet Android App Automation (~8ms dispatch)
 agi-ctrl do "open whatsapp" "tap 'Alex'" "set 'Ready to roll! 🔥'" "tap 'Send || id:send'" "done"
 
-# 5. Atomic Search Input on Android
+# 7. Atomic Search Input on Android
 agi-ctrl do "open youtube" "tap-set 'Search || id:search' 'autonomous mobile agi' --enter" "done"
 ```

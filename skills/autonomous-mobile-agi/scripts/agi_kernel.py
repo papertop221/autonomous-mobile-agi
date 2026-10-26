@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-AGI Cognitive Kernel & General Problem Solver (GPS)
-Autonomous Reasoning, In-Memory Tool Synthesis, Intent Resolution, and Self-Healing Loop.
+AGI Cognitive Kernel & General Problem Solver (GPS) v6 - Professional Layman Edition
+Autonomous Reasoning, Intent Decomposition, App Atlas Integration, and Self-Healing Phone Operator.
 """
 import sys
 import os
@@ -12,9 +12,21 @@ import time
 import subprocess
 import shutil
 
-MEM_SCRIPT = os.path.expanduser("~/.agents/skills/autonomous-mobile-agi/scripts/agi_memory.py")
-EPHEMERAL_RUNNER = os.path.expanduser("~/.agents/skills/autonomous-mobile-agi/scripts/ephemeral_runner.sh")
+SKILL_DIR = os.path.expanduser("~/.agents/skills/autonomous-mobile-agi")
+MEM_SCRIPT = os.path.join(SKILL_DIR, "scripts/agi_memory.py")
+EPHEMERAL_RUNNER = os.path.join(SKILL_DIR, "scripts/ephemeral_runner.sh")
+DOCTOR_SCRIPT = os.path.join(SKILL_DIR, "scripts/device_doctor.py")
+APP_ATLAS_FILE = os.path.join(SKILL_DIR, "scripts/app_atlas.json")
 SATSET_BIN = os.path.expanduser("~/.local/bin/satset")
+
+# Load App Atlas
+APP_ATLAS = {}
+if os.path.exists(APP_ATLAS_FILE):
+    try:
+        with open(APP_ATLAS_FILE, "r", encoding="utf-8") as f:
+            APP_ATLAS = json.load(f)
+    except Exception:
+        pass
 
 def run_cmd(cmd: list or str, shell: bool = False):
     t0 = time.time()
@@ -38,7 +50,6 @@ def resolve_context(goal: str):
             items = json.loads(out)
             for item in items:
                 key = item.get("key", "").lower()
-                # Jika kata kunci ada dalam goal, sertakan
                 for word in goal.lower().split():
                     if len(word) > 2 and word in key:
                         context[key] = item.get("data_json")
@@ -46,116 +57,242 @@ def resolve_context(goal: str):
             pass
     return context
 
-def synthesize_c_tool(tool_name: str, c_code: str):
-    """
-    Kompilasi micro-tool C instan di RAM via ephemeral runner.
-    """
-    print(f"[AGI-KERNEL] Synthesizing ephemeral native tool: {tool_name}")
-    code, out, err, dt = run_cmd([EPHEMERAL_RUNNER, "c", c_code])
-    if code == 0:
-        # Register ke AGI memory
-        run_cmd([sys.executable, MEM_SCRIPT, "tool-reg", tool_name, "system", "c", c_code])
-    return code == 0, out, err, dt
+def match_atlas_app(goal_lower: str):
+    apps = APP_ATLAS.get("apps", {})
+    for app_id, meta in apps.items():
+        aliases = meta.get("aliases", [])
+        for alias in aliases:
+            if re.search(r'\b' + re.escape(alias) + r'\b', goal_lower):
+                return app_id, meta
+    return None, None
 
-def formulate_plan(goal: str, context: dict):
+def formulate_plan(goal: str, context: dict = None):
     """
-    General Goal Decomposition:
-    Menganalisis domain tujuan (Android UI, OS Shell, Data/Algoritma, Memory).
+    Semantic Intent Decomposition untuk Pengguna Awam:
+    Menganalisis kalimat bahasa Indonesia santai dan memetakannya ke langkah makro.
     """
+    if context is None:
+        context = {}
     goal_lower = goal.lower()
     plan = {
         "goal": goal,
         "domain": "general",
+        "action_type": "UNKNOWN",
         "steps": [],
-        "context_applied": context
+        "context_applied": context,
+        "requires_safety_stop": False,
+        "human_summary": ""
     }
 
-    # Heuristic 1: Android App Interaction (WhatsApp, IG, YouTube, Settings, etc.)
-    app_keywords = {
-        "wa": "whatsapp", "whatsapp": "whatsapp",
-        "ig": "instagram", "instagram": "instagram",
-        "yt": "youtube", "youtube": "youtube",
-        "settings": "settings", "setelan": "settings",
-        "browser": "chrome", "chrome": "chrome"
-    }
+    # 1. Cek Pembersihan Sistem & RAM
+    if any(x in goal_lower for x in ["ram", "memori", "cpu", "proses", "optimasi", "bersih", "lemot"]):
+        plan["domain"] = "system_optimization"
+        plan["action_type"] = "SYSTEM_CLEAN"
+        plan["human_summary"] = "Membersihkan memori RAM dan mengoptimalkan sistem ponsel"
+        plan["steps"].append({
+            "action": "shell",
+            "cmd": "free -h && satset clean 2>/dev/null || true"
+        })
+        return plan
 
-    detected_app = None
-    for kw, app in app_keywords.items():
-        if re.search(r'\b' + re.escape(kw) + r'\b', goal_lower):
-            detected_app = app
-            break
+    # 2. Cek App Atlas Matching
+    app_id, app_meta = match_atlas_app(goal_lower)
 
-    if detected_app or any(x in goal_lower for x in ["buka", "tap", "kirim", "cari"]):
+    # 3. Klasifikasi Intent Berdasarkan Kalimat
+    pipeline = []
+    
+    # --- INTENT: Chat / Kirim Pesan (WhatsApp) ---
+    chat_match = re.search(r'(?:kirim\s+pesan|chat|wa|kirim\s+wa)\s+(?:ke\s+)?([^\s,]+)(?:\s+bilang|\s+isi|\s*:\s*|\s+pesan\s+)?(.*)', goal_lower)
+    if "wa" in goal_lower or "whatsapp" in goal_lower or chat_match:
         plan["domain"] = "android_ui"
-        pipeline = []
-        if detected_app:
-            pipeline.append(f"open {detected_app}")
-
-        # Cek jika ada perintah cari / search
-        search_match = re.search(r'(?:cari|search)\s+([^,]+)', goal_lower)
-        # Cek pesan / message
-        msg_match = re.search(r'(?:kirim\s+pesan|chat)\s+(.+?)\s+ke\s+(.+)', goal_lower)
-
-        if search_match:
-            query = search_match.group(1).strip()
-            pipeline.append(f"tap-set 'Search || Telusuri || id:search' '{query}' --enter")
-        elif msg_match:
-            msg = msg_match.group(1).strip()
-            recipient = msg_match.group(2).strip()
+        plan["action_type"] = "CHAT_SEND"
+        recipient = ""
+        message = ""
+        if chat_match:
+            recipient = chat_match.group(1).strip()
+            message = chat_match.group(2).strip()
+            # Bersihkan imbuhan
+            message = re.sub(r'^(?:bilang|isi|bahwa|pesan)\s+', '', message).strip()
+        
+        plan["human_summary"] = f"Mengirim pesan WhatsApp ke '{recipient}': \"{message}\""
+        pipeline.append("open wa")
+        pipeline.append("if-tap 'Lanjut || Continue || Tutup || Close'")
+        if recipient:
+            pipeline.append("tap 'Search || Telusuri || id:menuitem_search || desc:Search'")
+            pipeline.append(f"set '{recipient}'")
             pipeline.append(f"tap '{recipient}'")
-            pipeline.append(f"set '{msg}'")
-            pipeline.append("tap 'Kirim || Send || id:send'")
-
+        if message:
+            pipeline.append(f"tap-set 'Ketik pesan || Message || id:entry' '{message}'")
+            pipeline.append("tap 'Kirim || Send || id:send || desc:Send'")
         pipeline.append("done")
         plan["steps"].append({"action": "satset_pipeline", "commands": pipeline})
-    
-    # Heuristic 2: System / Memory / Storage Optimization
-    elif any(x in goal_lower for x in ["ram", "memori", "cpu", "proses", "optimasi", "bersih"]):
-        plan["domain"] = "system_optimization"
-        plan["steps"].append({"action": "shell", "cmd": "free -h; satset clean"})
+        return plan
 
-    # Default: Autonomous General Execution
-    else:
-        plan["domain"] = "general_computation"
-        plan["steps"].append({"action": "shell", "cmd": f"echo 'Evaluating goal: {goal}'"})
+    # --- INTENT: Belanja / Pesan Makanan (Shopee / Grab / Gojek / Tokopedia) ---
+    is_shopping = any(x in goal_lower for x in ["beli", "belikan", "pesan", "order", "shopee", "tokped", "tokopedia", "grab", "gojek", "gofood", "grabfood"])
+    if is_shopping:
+        target_app = app_id if app_id in ["shopee", "tokopedia", "gojek", "grab"] else "shopee"
+        plan["domain"] = "android_ui"
+        plan["action_type"] = "ECOMMERCE_ORDER"
+        plan["requires_safety_stop"] = True  # GUARDRAIL: Berhenti di keranjang/ringkasan!
 
+        # Ekstrak kata kunci produk
+        query = re.sub(r'(?:beli|belikan|pesan|order|di\s+shopee|di\s+tokped|di\s+tokopedia|di\s+grab|di\s+gojek|cari|carikan|yang\s+paling\s+murah|diskon|promo)', '', goal_lower)
+        query = re.sub(r'\s+', ' ', query).strip()
+        if not query:
+            query = "promo hari ini"
+
+        plan["human_summary"] = f"Mencari '{query}' di {target_app.title()}, memilih promo terbaik, dan menyimpannya di keranjang belanja (Aman)"
+        pipeline.append(f"open {target_app}")
+        pipeline.append("if-tap 'Tutup || Lewati || Nanti Saja || Batal || id:close'")
+        pipeline.append(f"search '{query}'")
+        pipeline.append(f"tap-best --discount '{query}'")
+        pipeline.append("tap 'Masukkan Keranjang || Tambah ke Keranjang || + Keranjang || id:add_to_cart'")
+        plan["steps"].append({"action": "satset_pipeline", "commands": pipeline})
+        return plan
+
+    # --- INTENT: Media & Video (YouTube) ---
+    is_video = any(x in goal_lower for x in ["putar", "tonton", "video", "yt", "youtube", "dengarkan", "lagu", "musik"])
+    if is_video or app_id == "youtube":
+        plan["domain"] = "android_ui"
+        plan["action_type"] = "MEDIA_PLAYBACK"
+        query = re.sub(r'(?:putar|tonton|cari\s+video|cari|dengarkan|di\s+youtube|di\s+yt|video)', '', goal_lower).strip()
+        if not query:
+            query = "lofi hip hop"
+        plan["human_summary"] = f"Membuka YouTube, mencari '{query}', dan langsung memutar video"
+        pipeline.append("open yt")
+        pipeline.append("if-tap 'Tidak, terima kasih || Batal || Lewati'")
+        pipeline.append(f"search '{query}'")
+        pipeline.append("tap '#1 || #2'")
+        pipeline.append("done")
+        plan["steps"].append({"action": "satset_pipeline", "commands": pipeline})
+        return plan
+
+    # --- INTENT: Navigasi / Peta (Google Maps) ---
+    is_maps = any(x in goal_lower for x in ["rute", "peta", "maps", "navigasi", "ke mana", "jalan ke"])
+    if is_maps or app_id == "maps":
+        plan["domain"] = "android_ui"
+        plan["action_type"] = "NAVIGATION"
+        destination = re.sub(r'(?:rute\s+ke|jalan\s+ke|ke\s+|cari\s+rute|peta|maps|navigasi)', '', goal_lower).strip()
+        plan["human_summary"] = f"Mencari rute navigasi Google Maps menuju '{destination}'"
+        pipeline.append("open maps")
+        pipeline.append("if-tap 'Batal || Tutup || Nanti'")
+        if destination:
+            pipeline.append(f"search '{destination}'")
+            pipeline.append("tap 'Rute || Directions || id:directions_button'")
+        pipeline.append("done")
+        plan["steps"].append({"action": "satset_pipeline", "commands": pipeline})
+        return plan
+
+    # --- INTENT: Alarm & Jam ---
+    if any(x in goal_lower for x in ["alarm", "bangunkan", "jam "]):
+        plan["domain"] = "android_ui"
+        plan["action_type"] = "CLOCK_ALARM"
+        plan["human_summary"] = "Membuka aplikasi Jam untuk menyetel alarm"
+        pipeline.append("open com.google.android.deskclock")
+        pipeline.append("tap 'Alarm || desc:Alarm'")
+        pipeline.append("tap 'Tambah alarm || id:fab || desc:Tambah alarm'")
+        plan["steps"].append({"action": "satset_pipeline", "commands": pipeline})
+        return plan
+
+    # --- INTENT UMUM: Buka Aplikasi atau Pencarian Umum ---
+    if app_id:
+        plan["domain"] = "android_ui"
+        plan["action_type"] = "APP_INTERACT"
+        plan["human_summary"] = f"Membuka aplikasi {app_meta.get('name', app_id)}"
+        pipeline.append(f"open {app_id}")
+        pipeline.append("if-tap 'Tutup || Lewati || Nanti Saja || Batal'")
+        # Jika ada kata pencarian
+        search_kw = re.search(r'(?:cari|search)\s+([^,]+)', goal_lower)
+        if search_kw:
+            q = search_kw.group(1).strip()
+            pipeline.append(f"search '{q}'")
+        plan["steps"].append({"action": "satset_pipeline", "commands": pipeline})
+        return plan
+
+    # --- DEFAULT: General Fallback ---
+    plan["domain"] = "general_computation"
+    plan["action_type"] = "GENERAL"
+    plan["human_summary"] = f"Mengevaluasi instruksi: {goal}"
+    plan["steps"].append({"action": "shell", "cmd": f"echo 'Instruksi: {goal}'"})
     return plan
+
+def check_and_ensure_daemon():
+    """
+    Pemeriksaan pre-flight mandiri agar orang awam tidak terkena error socket.
+    """
+    # Jalankan doctor silent check
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("device_doctor", DOCTOR_SCRIPT)
+        doc = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(doc)
+        
+        if doc.ping_daemon():
+            return True, "Daemon ready"
+        
+        # Coba auto-reconnect
+        adb_ok, _ = doc.get_adb_status()
+        if not adb_ok:
+            adb_ok, _ = doc.auto_reconnect_adb()
+        if adb_ok:
+            return doc.start_daemon_via_adb()
+        return False, "ADB not connected"
+    except Exception as e:
+        return False, str(e)
 
 def execute_plan(plan: dict):
     t0 = time.time()
     success = True
     details = []
 
+    print(f"\n🚀 [OPERATOR] Memulai eksekusi: {plan.get('human_summary', plan['goal'])}")
+    if plan.get("requires_safety_stop"):
+        print("🛡️ [GUARDRAIL] Mode Pembelian Aman: Alur akan otomatis berhenti di halaman keranjang/ringkasan pembayaran demi keamanan Anda.")
+
     for step in plan["steps"]:
         action = step.get("action")
         if action == "satset_pipeline":
             cmds = step.get("commands", [])
+            
+            # Pre-flight check
+            d_ok, d_msg = check_and_ensure_daemon()
+            if not d_ok:
+                print("\n⚠️ [PERINGATAN] Ponsel sedang tidak terhubung ke jembatan pengendali.")
+                print("   Menjalankan asisten dokter perangkat...")
+                subprocess.run([sys.executable, DOCTOR_SCRIPT])
+                return False, "connection_required", ["Perangkat belum terhubung. Silakan ikuti panduan dokter di atas."], 0
+
             full_cmd = [SATSET_BIN, "do"] + cmds
-            print(f"[AGI-KERNEL] Dispatching Sub-Millisecond Native Pipeline: {' '.join(cmds)}")
+            print(f"⚡ [OPERATOR] Menjalankan alur ponsel: {' -> '.join(cmds)}")
             code, out, err, dt = run_cmd(full_cmd)
             if code != 0:
                 success = False
-                details.append(f"Satset failed ({code}): {err}")
-                # Autonomous self-healing fallback
-                print("[AGI-KERNEL] Triggering Metacognitive Fallback (Screen Refresh & Re-inspect)...")
+                details.append(f"Gagal ({code}): {err}")
                 run_cmd([SATSET_BIN, "clean"])
             else:
-                details.append(f"Satset executed in {dt}ms: {out}")
+                details.append(f"Selesai dalam {dt}ms: {out}")
 
         elif action == "shell":
             cmd = step.get("cmd")
-            print(f"[AGI-KERNEL] Running OS Effector: {cmd}")
             code, out, err, dt = run_cmd(cmd, shell=True)
             if code != 0:
                 success = False
-                details.append(f"Shell failed ({code}): {err}")
+                details.append(f"Gagal ({code}): {err}")
             else:
-                details.append(f"Shell output ({dt}ms):\n{out}")
+                details.append(f"Selesai ({dt}ms):\n{out}")
 
     total_dt = int((time.time() - t0) * 1000)
     outcome = "success" if success else "failure"
 
-    # Autonomous Learning: Record Episode to Memory
+    if success:
+        print(f"\n✅ [OPERATOR] Tugas Selesai dalam {total_dt}ms!")
+        if plan.get("requires_safety_stop"):
+            print("👉 Silakan periksa layar ponsel Anda untuk memverifikasi produk di keranjang dan melanjutkan jika sudah sesuai.")
+    else:
+        print(f"\n❌ [OPERATOR] Terjadi kendala saat eksekusi ({total_dt}ms).")
+
+    # Autonomous Learning: Catat episode ke AGI Memory
     run_cmd([
         sys.executable, MEM_SCRIPT, "record",
         plan["goal"],
@@ -170,39 +307,45 @@ def execute_plan(plan: dict):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: satset-agi <goal|plan|solve> \"<statement>\" [options]")
+        print("Penggunaan Operator Ponsel Cerdas:")
+        print("  operator \"<ide mentah Anda>\"   -> Eksekusi langsung (cth: operator \"pesan martabak di gofood\")")
+        print("  operator doctor                -> Cek kesiapan & koneksi ponsel")
+        print("  operator pair <port> <kode>    -> Sambungkan debug nirkabel HP")
+        print("  operator plan \"<ide mentah>\"   -> Lihat rencana langkah tanpa mengeksekusi")
+        sys.exit(0)
+
+    arg1 = sys.argv[1].lower()
+
+    if arg1 in ["doctor", "check", "--doctor", "--check"]:
+        subprocess.run([sys.executable, DOCTOR_SCRIPT])
+        return
+
+    if arg1 in ["pair", "--pair"]:
+        if len(sys.argv) >= 4:
+            subprocess.run([sys.executable, DOCTOR_SCRIPT, "pair", sys.argv[2], sys.argv[3]])
+        else:
+            print("Format salah. Gunakan: agi pair <port> <kode_pairing>")
+        return
+
+    if arg1 == "plan":
+        statement = " ".join(sys.argv[2:]) if len(sys.argv) > 2 else ""
+        ctx = resolve_context(statement)
+        plan = formulate_plan(statement, ctx)
+        print(json.dumps(plan, indent=2, ensure_ascii=False))
+        return
+
+    if arg1 in ["solve", "run", "do"]:
+        statement = " ".join(sys.argv[2:]) if len(sys.argv) > 2 else ""
+    else:
+        statement = " ".join(sys.argv[1:])
+
+    if not statement:
+        print("Silakan masukkan instruksi atau ide mentah Anda.")
         sys.exit(1)
 
-    cmd = sys.argv[1]
-    statement = " ".join(sys.argv[2:]) if len(sys.argv) > 2 else ""
-
-    if cmd in ["solve", "run", "do"]:
-        if not statement:
-            print("Error: Empty goal statement", file=sys.stderr)
-            sys.exit(1)
-        print(f"[AGI-KERNEL] Ingesting Goal: \"{statement}\"")
-        ctx = resolve_context(statement)
-        if ctx:
-            print(f"[AGI-KERNEL] Context Resolved from Memory: {list(ctx.keys())}")
-        plan = formulate_plan(statement, ctx)
-        print(f"[AGI-KERNEL] Generated Plan: Domain={plan['domain']}, Steps={len(plan['steps'])}")
-        ok, outcome, details, dt = execute_plan(plan)
-        print(f"[AGI-KERNEL] Execution Complete [{outcome.upper()}] in {dt}ms")
-        for d in details:
-            print(f"  -> {d}")
-    elif cmd == "plan":
-        ctx = resolve_context(statement)
-        plan = formulate_plan(statement, ctx)
-        print(json.dumps(plan, indent=2))
-    elif cmd == "status":
-        print("[AGI-KERNEL] Status: Active & Operational")
-        run_cmd([sys.executable, MEM_SCRIPT, "list"])
-    else:
-        # Fallback treat entire args as goal
-        goal = " ".join(sys.argv[1:])
-        ctx = resolve_context(goal)
-        plan = formulate_plan(goal, ctx)
-        execute_plan(plan)
+    ctx = resolve_context(statement)
+    plan = formulate_plan(statement, ctx)
+    execute_plan(plan)
 
 if __name__ == "__main__":
     main()

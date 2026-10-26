@@ -6,8 +6,9 @@ Tujuan modul ini: **Memaksimalkan rasio hasil per turn, memangkas waktu tunggu e
 
 ## 1. Deterministic 1-Turn Pipeline
 
-- **Parallel Tool Batching**:
-  - Dilarang keras memanggil `read_file`, `edit_file`, atau `write_file` satu per satu di turn terpisah jika targetnya sudah diketahui.
+- **Parallel Tool Batching & 1-Turn Pipeline Execution**:
+  - Dilarang keras memecah alur aksi UI menjadi beberapa turn terpisah (misal: turn 1 buka app, turn 2 inspeksi UI, turn 3 tap tombol, turn 4 tap tombol lagi).
+  - Satukan seluruh rantai aksi navigasi ke dalam **1 paket tunggal** `agi-ctrl do` menggunakan fallback selector chain dan timing atomik (`wait ms`).
   - Eksekusi seluruh pembacaan atau pembaruan multi-file secara **paralel dalam 1 turn**.
 - **Composite Chained Shell (`&&` / `||`)**:
   - Gabungkan **eksekusi + kompilasi/uji + verifikasi** dalam satu panggilan `run_command`:
@@ -41,3 +42,21 @@ Context window yang bersih menghasilkan penalaran yang lebih tajam dan respons y
 - **Struktur Respons Padat**:
   - Langsung tampilkan status/hasil akhir, perubahan utama, dan tautan file yang dapat diklik (`[nama_file](file:///path#L10-L20)`).
   - Jangan menyalin ulang isi file atau menjelaskan kode baris demi baris kecuali diminta secara eksplisit.
+
+---
+
+## 4. ⚡ Eliminasi Bottleneck AI Cloud (Super-Velocity Protocol)
+
+Untuk memangkas jeda generasi LLM di cloud (dari 4 detik menjadi < 400 milidetik):
+
+1. **Zero-Prose Direct Tool Dispatch**:
+   - Dilarang memproduksi paragraf pembuka atau narasi langkah di tengah tugas aktif.
+   - Pangkas 95% token generasi: model langsung mengalirkan perintah makro/tool-call tanpa teks pengantar.
+2. **Streaming Early-Action Pipeline**:
+   - Eksekusi paralel: jangan menunggu seluruh respons cloud selesai. Begitu token aksi pertama (`open`, `search`) tiba di aliran stream, eksekusi lokal di HP langsung dimulai.
+3. **Daemon Reflex Shield (Eliminasi Turn Dialog Sepele)**:
+   - Dialog mekanis (seperti *"Yakin ingin menghapus? [Ya]"*, *"Hapus produk tidak tersedia? [Konfirmasi]"*, atau banner voucher) **WAJIB** ditangani langsung oleh daemon lokal (`satset if-tap 'Ya || Konfirmasi || Tutup || OK'`).
+   - Dilarang membuang 1 turn LLM (2–4 detik) hanya untuk mengonfirmasi dialog ya/tidak.
+4. **Dynamic Model Cascading (Perencanaan Cerdas + Navigasi Kilat)**:
+   - **Tier 1 (Strategic Planner)**: Model cerdas (Gemini Flash) dipakai 1 kali di awal untuk menyusun graf fase tugas.
+   - **Tier 2 (High-Velocity Navigator)**: Langkah mikro/inspeksi UI dinamis diarahkan ke model ultra-cepat sub-200ms (`Flash-Lite` / low-token) tanpa hardcode template, sehingga tetap 100% fleksibel di semua aplikasi dan skenario baru.

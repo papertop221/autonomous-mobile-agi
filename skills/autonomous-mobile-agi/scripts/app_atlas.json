@@ -1,0 +1,173 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-10-26",
+  "description": "Atlas UI & Pola Navigasi Aplikasi Populer Indonesia untuk Operator Ponsel Otomatis",
+  "apps": {
+    "whatsapp": {
+      "name": "WhatsApp",
+      "package": "com.whatsapp",
+      "aliases": ["wa", "whatsapp", "pesan wa", "chat wa"],
+      "default_open": "open wa",
+      "search": {
+        "selectors": ["Search || Telusuri || id:menuitem_search || desc:Search || desc:Telusuri"],
+        "submit_enter": false
+      },
+      "chat": {
+        "input_selectors": ["Ketik pesan || Message || id:entry || id:conversation_text_entry"],
+        "send_selectors": ["Kirim || Send || id:send || desc:Send || desc:Kirim"],
+        "attach_selectors": ["Lampirkan || Attach || id:input_attach_button || desc:Attach"]
+      },
+      "dismiss_popups": [
+        "Lanjut || Continue",
+        "Nanti || Later",
+        "Tutup || Close",
+        "Izinkan || Allow"
+      ]
+    },
+    "shopee": {
+      "name": "Shopee",
+      "package": "com.shopee.id",
+      "aliases": ["shopee", "toko oren", "olshop"],
+      "default_open": "open shopee",
+      "search": {
+        "selectors": ["id:search || id:search_text || desc:Search || Cari di Shopee"],
+        "submit_enter": true
+      },
+      "product": {
+        "cart_selectors": ["Masukkan Keranjang || Tambah ke Keranjang || desc:Tambah ke Keranjang || id:add_to_cart"],
+        "buy_selectors": ["Beli Sekarang || Buy Now || id:buy_now"],
+        "discount_badge": ["diskon", "%", "promo", "hemat", "murah"]
+      },
+      "dismiss_popups": [
+        "Tutup || Lewati || Nanti || Jangan Sekarang || id:close || desc:Tutup || desc:Close"
+      ]
+    },
+    "tokopedia": {
+      "name": "Tokopedia",
+      "package": "com.tokopedia.tkpd",
+      "aliases": ["tokped", "tokopedia", "toko ijo"],
+      "default_open": "open tokopedia",
+      "search": {
+        "selectors": ["Cari di Tokopedia || id:search_src_text || desc:Search"],
+        "submit_enter": true
+      },
+      "product": {
+        "cart_selectors": ["+ Keranjang || Masukkan Keranjang || id:btn_add_to_cart"],
+        "buy_selectors": ["Beli Langsung || id:btn_buy_now"]
+      },
+      "dismiss_popups": [
+        "Nanti Saja || Batal || Tutup || id:dialog_close"
+      ]
+    },
+    "gojek": {
+      "name": "Gojek",
+      "package": "com.gojek.app",
+      "aliases": ["gojek", "gofood", "goride", "gocar", "gopay"],
+      "default_open": "open gojek",
+      "search": {
+        "selectors": ["Mau makan apa hari ini? || Mau ke mana hari ini? || Cari || id:search_bar || desc:Search"],
+        "submit_enter": true
+      },
+      "dismiss_popups": [
+        "Nanti || Tutup || Lewati || id:btn_dismiss"
+      ]
+    },
+    "grab": {
+      "name": "Grab",
+      "package": "com.grabtaxi.passenger",
+      "aliases": ["grab", "grabfood", "grabbike", "grabcar"],
+      "default_open": "open grab",
+      "search": {
+        "selectors": ["Mau ke mana? || Mau makan apa? || Cari di Grab || desc:Search"],
+        "submit_enter": true
+      },
+      "dismiss_popups": [
+        "Nanti || Tutup || Batal || id:cross_button"
+      ]
+    },
+    "youtube": {
+      "name": "YouTube",
+      "package": "com.google.android.youtube",
+      "aliases": ["yt", "youtube", "video"],
+      "default_open": "open yt",
+      "search": {
+        "selectors": ["Search || Telusuri YouTube || id:search_edit_text || desc:Search"],
+        "submit_enter": true
+      },
+      "player": {
+        "play_pause": ["id:play_pause_button || desc:Play || desc:Putar"],
+        "fullscreen": ["id:fullscreen_button || desc:Layar Penuh || desc:Fullscreen"]
+      },
+      "dismiss_popups": [
+        "Batal || Lewati || Tidak, terima kasih || Lewati Iklan || Skip Ad || id:skip_ad_button"
+      ]
+    },
+    "instagram": {
+      "name": "Instagram",
+      "package": "com.instagram.android",
+      "aliases": ["ig", "instagram"],
+      "default_open": "open ig",
+      "search": {
+        "selectors": ["Search || Cari || id:action_bar_search_edit_text"],
+        "submit_enter": true
+      },
+      "dismiss_popups": [
+        "Nanti Saja || Lewati || Batal || Tidak Sekarang || id:negative_button"
+      ]
+    },
+    "tiktok": {
+      "name": "TikTok",
+      "package": "com.zhiliaoapp.musically",
+      "aliases": ["tt", "tiktok", "tik tok"],
+      "default_open": "open tt",
+      "search": {
+        "selectors": ["Search || Cari || id:et_search"],
+        "submit_enter": true
+      },
+      "dismiss_popups": [
+        "Nanti || Tutup || Lewati || Batal"
+      ]
+    },
+    "maps": {
+      "name": "Google Maps",
+      "package": "com.google.android.apps.maps",
+      "aliases": ["maps", "google maps", "peta", "lokasi", "rute"],
+      "default_open": "open maps",
+      "search": {
+        "selectors": ["Telusuri di sini || Search here || id:search_omnibox_edit_text"],
+        "submit_enter": true
+      },
+      "navigation": {
+        "route_selectors": ["Rute || Directions || id:directions_button"],
+        "start_selectors": ["Mulai || Start || id:start_navigation_button"]
+      },
+      "dismiss_popups": [
+        "Batal || Tutup || Tidak Sekarang"
+      ]
+    },
+    "clock": {
+      "name": "Jam & Alarm",
+      "package": "com.google.android.deskclock",
+      "aliases": ["jam", "alarm", "clock", "waktu"],
+      "default_open": "open com.google.android.deskclock",
+      "alarm": {
+        "tab": ["Alarm || desc:Alarm"],
+        "add_button": ["Tambah alarm || Buat alarm || id:fab || desc:Tambah alarm"]
+      }
+    },
+    "settings": {
+      "name": "Setelan HP",
+      "package": "com.android.settings",
+      "aliases": ["setelan", "pengaturan", "settings"],
+      "default_open": "open settings",
+      "search": {
+        "selectors": ["Telusuri setelan || Search settings || id:search_action_bar"],
+        "submit_enter": true
+      }
+    }
+  },
+  "global_popups": [
+    "Tutup", "Lewati", "Nanti", "Nanti Saja", "Tidak Sekarang", "Batal",
+    "Close", "Skip", "Later", "Cancel", "Not Now", "Dismiss", "Mengerti", "OK"
+  ]
+}

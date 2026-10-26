@@ -456,11 +456,27 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    /* 4. Tap / Long-Tap */
+    /* 4. Tap / Long-Tap / If-Tap / Scroll-Tap / Tap-Best */
+    if (strcasecmp(sub, "if-tap") == 0 || strcasecmp(sub, "iftap") == 0
+        || strcasecmp(sub, "try-tap") == 0 || strcasecmp(sub, "trytap") == 0
+        || strcasecmp(sub, "scroll-to") == 0 || strcasecmp(sub, "scrollto") == 0
+        || strcasecmp(sub, "scroll-tap") == 0 || strcasecmp(sub, "scrolltap") == 0
+        || strcasecmp(sub, "tap-best") == 0 || strcasecmp(sub, "tapbest") == 0) {
+        char step_buf[2048];
+        join_args(step_buf, sizeof(step_buf), argc, argv, 1, " ");
+        char req[2200];
+        snprintf(req, sizeof(req), "DO\t0\t%s", step_buf);
+        char *r = daemon_request(req);
+        puts(r);
+        free(r);
+        return 0;
+    }
+
     if (strcasecmp(sub, "tap") == 0 || strcasecmp(sub, "click") == 0 || strcasecmp(sub, "t") == 0
         || strcasecmp(sub, "longtap") == 0 || strcasecmp(sub, "longclick") == 0) {
         const char *verb = (strncasecmp(sub, "long", 4) == 0) ? "LONGTAP" : "TAP";
         int wait_ms = 2000;
+        int with_ui = 1;
         char target[2048];
         target[0] = '\0';
         char *cleaned[64];
@@ -471,20 +487,23 @@ int main(int argc, char **argv) {
                 wait_ms = atoi(argv[++i]);
             } else if (strcmp(argv[i], "--nowait") == 0) {
                 wait_ms = 0;
+            } else if (strcmp(argv[i], "--no-ui") == 0 || strcmp(argv[i], "-q") == 0) {
+                with_ui = 0;
             } else if (c_count < 64) {
                 cleaned[c_count++] = argv[i];
             }
         }
 
         char req[2400];
+        const char *ui_suf = with_ui ? "\t+UI" : "";
         if (c_count == 2 && is_int_str(cleaned[0]) && is_int_str(cleaned[1])) {
-            snprintf(req, sizeof(req), "%s\t%s\t%s", verb, cleaned[0], cleaned[1]);
+            snprintf(req, sizeof(req), "%s\t%s\t%s%s", verb, cleaned[0], cleaned[1], ui_suf);
         } else if (c_count == 1 && strchr(cleaned[0], ',') != NULL) {
             char x[64], y[64];
             if (parse_xy_args(1, cleaned, 0, x, sizeof(x), y, sizeof(y)) == 1) {
-                snprintf(req, sizeof(req), "%s\t%s\t%s", verb, x, y);
+                snprintf(req, sizeof(req), "%s\t%s\t%s%s", verb, x, y, ui_suf);
             } else {
-                snprintf(req, sizeof(req), "%s\t%s\t%d", verb, cleaned[0], wait_ms);
+                snprintf(req, sizeof(req), "%s\t%s\t%d%s", verb, cleaned[0], wait_ms, ui_suf);
             }
         } else {
             for (int i = 0; i < c_count; i++) {
@@ -492,9 +511,9 @@ int main(int argc, char **argv) {
                 strncat(target, cleaned[i], sizeof(target) - strlen(target) - 1);
             }
             if (is_int_str(target)) {
-                snprintf(req, sizeof(req), "%s\t#%s\t%d", verb, target, wait_ms);
+                snprintf(req, sizeof(req), "%s\t#%s\t%d%s", verb, target, wait_ms, ui_suf);
             } else {
-                snprintf(req, sizeof(req), "%s\t%s\t%d", verb, target, wait_ms);
+                snprintf(req, sizeof(req), "%s\t%s\t%d%s", verb, target, wait_ms, ui_suf);
             }
         }
         char *r = daemon_request(req);
@@ -511,11 +530,14 @@ int main(int argc, char **argv) {
         }
         const char *target = argv[2];
         int press_enter = 0;
+        int with_ui = 1;
         char text_buf[8192];
         text_buf[0] = '\0';
         for (int i = 3; i < argc; i++) {
             if (strcmp(argv[i], "--enter") == 0 || strcmp(argv[i], "-e") == 0) {
                 press_enter = 1;
+            } else if (strcmp(argv[i], "--no-ui") == 0 || strcmp(argv[i], "-q") == 0) {
+                with_ui = 0;
             } else {
                 if (text_buf[0] != '\0') strncat(text_buf, " ", sizeof(text_buf) - strlen(text_buf) - 1);
                 strncat(text_buf, argv[i], sizeof(text_buf) - strlen(text_buf) - 1);
@@ -524,7 +546,7 @@ int main(int argc, char **argv) {
         char *b64 = b64_encode((const unsigned char *)text_buf, strlen(text_buf));
         size_t req_sz = strlen(target) + strlen(b64) + 64;
         char *req = (char *)malloc(req_sz);
-        snprintf(req, req_sz, "TAP_SET\t%s\t%s\t%d", target, b64, press_enter);
+        snprintf(req, req_sz, "TAP_SET\t%s\t%s\t%d%s", target, b64, press_enter, with_ui ? "\t+UI" : "");
         char *r = daemon_request(req);
         puts(r);
         free(r);
@@ -539,6 +561,7 @@ int main(int argc, char **argv) {
         int append_flag = (strcasecmp(sub, "append") == 0) ? 1 : 0;
         int press_enter = (strcasecmp(sub, "search") == 0) ? 1 : 0;
         int wait_ms = 2500;
+        int with_ui = 1;
         const char *target = "";
         char *cleaned[128];
         int c_count = 0;
@@ -552,6 +575,8 @@ int main(int argc, char **argv) {
                 press_enter = 1;
             } else if (strcmp(argv[i], "--append") == 0) {
                 append_flag = 1;
+            } else if (strcmp(argv[i], "--no-ui") == 0 || strcmp(argv[i], "-q") == 0) {
+                with_ui = 0;
             } else if (c_count < 128) {
                 cleaned[c_count++] = argv[i];
             }
@@ -576,18 +601,11 @@ int main(int argc, char **argv) {
         char *b64 = b64_encode((const unsigned char *)text_val, strlen(text_val));
         size_t req_sz = strlen(target) + strlen(b64) + 64;
         char *req = (char *)malloc(req_sz);
-        snprintf(req, req_sz, "SET_B64\t%s\t%s\t%d\t%d", target, b64, wait_ms, append_flag);
+        snprintf(req, req_sz, "SET_B64\t%s\t%s\t%d\t%d\t%d%s", target, b64, wait_ms, append_flag, press_enter, with_ui ? "\t+UI" : "");
         char *resp = daemon_request(req);
         free(req);
         free(b64);
-
-        if (press_enter) {
-            char *er = daemon_request("NAV\tenter");
-            printf("%s + %s\n", resp, er);
-            free(er);
-        } else {
-            puts(resp);
-        }
+        puts(resp);
         free(resp);
         return 0;
     }
@@ -598,10 +616,20 @@ int main(int argc, char **argv) {
             puts("ERR\tUsage: satset open <app_or_url>");
             return 1;
         }
+        int with_ui = 1;
         char target[2048];
-        join_args(target, sizeof(target), argc, argv, 2, " ");
+        target[0] = '\0';
+        for (int i = 2; i < argc; i++) {
+            if (strcmp(argv[i], "--no-ui") == 0 || strcmp(argv[i], "-q") == 0) {
+                with_ui = 0;
+            } else {
+                if (target[0] != '\0') strncat(target, " ", sizeof(target) - strlen(target) - 1);
+                strncat(target, argv[i], sizeof(target) - strlen(target) - 1);
+            }
+        }
+        if (strcasecmp(target, "termux") == 0 || strcasecmp(target, "com.termux") == 0) with_ui = 0;
         char req[2200];
-        snprintf(req, sizeof(req), "OPEN\t%s", target);
+        snprintf(req, sizeof(req), "OPEN\t%s%s", target, with_ui ? "\t+UI" : "");
         char *r = daemon_request(req);
         puts(r);
         free(r);
@@ -616,7 +644,7 @@ int main(int argc, char **argv) {
         const char *fp = argv[2];
         const char *app = argc > 3 ? argv[3] : "";
         char req[2200];
-        snprintf(req, sizeof(req), "SHARE\t%s\t%s", fp, app);
+        snprintf(req, sizeof(req), "SHARE\t%s\t%s\t+UI", fp, app);
         char *r = daemon_request(req);
         puts(r);
         free(r);
@@ -646,11 +674,17 @@ int main(int argc, char **argv) {
 
     /* 8. Scroll / Swipe / Nav / Wait */
     if (strcasecmp(sub, "scroll") == 0) {
-        const char *dir = argc > 2 ? argv[2] : "down";
-        int count = (argc > 3 && is_int_str(argv[3])) ? atoi(argv[3]) : 1;
-        char req[128];
-        snprintf(req, sizeof(req), "SCROLL\t%s\t8", dir);
+        const char *dir = "down";
+        int count = 1;
+        int with_ui = 1;
+        for (int i = 2; i < argc; i++) {
+            if (strcmp(argv[i], "--no-ui") == 0 || strcmp(argv[i], "-q") == 0) with_ui = 0;
+            else if (is_int_str(argv[i])) count = atoi(argv[i]);
+            else dir = argv[i];
+        }
         for (int i = 0; i < count; i++) {
+            char req[160];
+            snprintf(req, sizeof(req), "SCROLL\t%s\t8%s", dir, (with_ui && i + 1 == count) ? "\t+UI" : "");
             char *r = daemon_request(req);
             puts(r);
             free(r);
@@ -663,9 +697,14 @@ int main(int argc, char **argv) {
             puts("ERR\tUsage: satset swipe <x1> <y1> <x2> <y2> [steps]");
             return 1;
         }
-        const char *steps = argc > 6 ? argv[6] : "8";
+        int with_ui = 1;
+        const char *steps = "8";
+        for (int i = 6; i < argc; i++) {
+            if (strcmp(argv[i], "--no-ui") == 0 || strcmp(argv[i], "-q") == 0) with_ui = 0;
+            else steps = argv[i];
+        }
         char req[256];
-        snprintf(req, sizeof(req), "SWIPE\t%s\t%s\t%s\t%s\t%s", argv[2], argv[3], argv[4], argv[5], steps);
+        snprintf(req, sizeof(req), "SWIPE\t%s\t%s\t%s\t%s\t%s%s", argv[2], argv[3], argv[4], argv[5], steps, with_ui ? "\t+UI" : "");
         char *r = daemon_request(req);
         puts(r);
         free(r);
@@ -674,8 +713,9 @@ int main(int argc, char **argv) {
 
     if (strcasecmp(sub, "nav") == 0 || strcasecmp(sub, "key") == 0) {
         const char *act = argc > 2 ? argv[2] : "back";
-        char req[128];
-        snprintf(req, sizeof(req), "NAV\t%s", act);
+        int with_ui = (argc > 3 && (strcmp(argv[3], "--no-ui") == 0 || strcmp(argv[3], "-q") == 0)) ? 0 : 1;
+        char req[160];
+        snprintf(req, sizeof(req), "NAV\t%s%s", act, with_ui ? "\t+UI" : "");
         char *r = daemon_request(req);
         puts(r);
         free(r);
@@ -692,8 +732,12 @@ int main(int argc, char **argv) {
             printf("OK\tSLEEP %.2fs\n", sec);
             return 0;
         }
-        char req[128];
-        snprintf(req, sizeof(req), "NAV\t%s", sub);
+        int with_ui = (strcasecmp(sub, "back") == 0 || strcasecmp(sub, "home") == 0 || strcasecmp(sub, "enter") == 0) ? 1 : 0;
+        for (int i = 2; i < argc; i++) {
+            if (strcmp(argv[i], "--no-ui") == 0 || strcmp(argv[i], "-q") == 0) with_ui = 0;
+        }
+        char req[160];
+        snprintf(req, sizeof(req), "NAV\t%s%s", sub, with_ui ? "\t+UI" : "");
         char *r = daemon_request(req);
         puts(r);
         free(r);

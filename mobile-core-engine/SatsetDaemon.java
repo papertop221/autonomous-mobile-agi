@@ -35,7 +35,8 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class SatsetDaemon {
     public static final int PORT = 19888;
-    private static final int PREFETCH_HYBRID = 4; // FLAG_PREFETCH_DESCENDANTS_HYBRID
+    private static final int PREFETCH_FAST = 38;   // FLAG_PREFETCH_UNINTERRUPTIBLE (32) | FLAG_PREFETCH_DESCENDANTS_HYBRID (4) | FLAG_PREFETCH_SIBLINGS (2)
+    private static final int PREFETCH_HYBRID = 36; // FLAG_PREFETCH_UNINTERRUPTIBLE (32) | FLAG_PREFETCH_DESCENDANTS_HYBRID (4)
     private static final int SOURCE_TOUCHSCREEN = 0x00001002;
     private static final int SOURCE_KEYBOARD = 0x00000101;
     private static final int SOURCE_GAMEPAD = 0x00000401;
@@ -67,6 +68,7 @@ public class SatsetDaemon {
     private static final Rect tmpRect = new Rect();
     private static List<UiItem> lastItems = new ArrayList<>(128);
     private static String lastPackage = "";
+    private static volatile String lastTargetApp = "";
     private static int cachedScreenW = 1220;
     private static int cachedScreenH = 2712;
     private static long lastScreenDimCheck = 0L;
@@ -419,14 +421,16 @@ public class SatsetDaemon {
         public boolean clickable, longClickable, editable, scrollable, checkable, checked, focused, enabled;
 
         public String formatLine() {
-            StringBuilder sb = new StringBuilder(112);
+            return formatLine(false);
+        }
+
+        public String formatLine(boolean fullText) {
+            StringBuilder sb = new StringBuilder(fullText ? 512 : 96);
             sb.append("[").append(index).append("] ");
             sb.append("(").append(cx).append(",").append(cy).append(") ");
-            sb.append("[").append(left).append(",").append(top).append("-").append(right).append(",").append(bottom).append("] ");
-            sb.append(shortCls);
 
             if (clickable || editable || scrollable || longClickable || checked || focused) {
-                sb.append(" [");
+                sb.append("[");
                 boolean first = true;
                 if (clickable) { sb.append("CLICK"); first = false; }
                 if (editable) { if (!first) sb.append("|"); sb.append("EDIT"); first = false; }
@@ -434,20 +438,29 @@ public class SatsetDaemon {
                 if (longClickable && !clickable) { if (!first) sb.append("|"); sb.append("LONG"); first = false; }
                 if (checked) { if (!first) sb.append("|"); sb.append("CHECKED"); first = false; }
                 if (focused) { if (!first) sb.append("|"); sb.append("FOCUSED"); }
-                sb.append("]");
+                sb.append("] ");
+            } else {
+                sb.append(shortCls).append(" ");
             }
 
+            int maxT = fullText ? 1500 : 90;
+            int maxD = fullText ? 1000 : 75;
+            int maxC = fullText ? 1000 : 125;
+
             if (!text.isEmpty()) {
-                sb.append(" text=\"").append(cleanStr(text, 85)).append("\"");
-            }
-            if (!desc.isEmpty()) {
-                sb.append(" desc=\"").append(cleanStr(desc, 65)).append("\"");
-            }
-            if (text.isEmpty() && desc.isEmpty() && !childLabel.isEmpty()) {
-                sb.append(" label=\"").append(cleanStr(childLabel, 100)).append("\"");
+                sb.append("\"").append(cleanStr(text, maxT)).append("\"");
+                if (!desc.isEmpty() && !desc.equalsIgnoreCase(text)) {
+                    sb.append(" desc=\"").append(cleanStr(desc, maxD)).append("\"");
+                }
+            } else if (!desc.isEmpty()) {
+                sb.append("desc=\"").append(cleanStr(desc, maxD)).append("\"");
+            } else if (!childLabel.isEmpty()) {
+                sb.append("\"").append(cleanStr(childLabel, maxC)).append("\"");
+            } else {
+                sb.append(shortCls);
             }
             if (!shortId.isEmpty()) {
-                sb.append(" id=\"").append(shortId).append("\"");
+                sb.append(" id=").append(shortId);
             }
             return sb.toString();
         }
@@ -482,6 +495,21 @@ public class SatsetDaemon {
         return cs == null ? "" : cs.toString().trim();
     }
 
+    private static void boostTermuxPriorityAsync() {
+        new Thread(() -> {
+            try {
+                Runtime.getRuntime().exec(new String[]{
+                    "/system/bin/sh", "-c",
+                    "cmd deviceidle whitelist +com.termux >/dev/null 2>&1; " +
+                    "cmd appops set com.termux RUN_IN_BACKGROUND allow >/dev/null 2>&1; " +
+                    "cmd appops set com.termux RUN_ANY_IN_BACKGROUND allow >/dev/null 2>&1; " +
+                    "cmd appops set com.termux WAKE_LOCK allow >/dev/null 2>&1; " +
+                    "cmd activity set-standby-bucket com.termux active >/dev/null 2>&1"
+                });
+            } catch (Throwable ignored) {}
+        }, "satset-booster").start();
+    }
+
     private static void ensureConnected() throws Exception {
         synchronized (lock) {
             if (connected && uiAuto != null) return;
@@ -490,37 +518,7 @@ public class SatsetDaemon {
             wrapper.setCompressedLayoutHierarchy(false);
             uiAuto = wrapper.getUiAutomation();
 
-            AccessibilityServiceInfo info = uiAuto.getServiceInfo();
-            if (info != null) {
-                info.flags |= 64 | 16 | 2;
-                uiAuto.setServiceInfo(info);
-            }
-
-            // Register Sub-Millisecond AccessibilityEvent Reactor
-            try {
-                uiAuto.setOnAccessibilityEventListener(event -> {
-                    if (event == null) return;
-                    long now = SystemClock.uptimeMillis();
-                    lastUiEventTime = now;
-                    int type = event.getEventType();
-                    if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
-                        || type == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
-                        lastWindowStateChangeTime = now;
-                        CharSequence pkg = event.getPackageName();
-                        if (pkg != null && pkg.length() > 0) {
-                            String p = pkg.toString();
-                            if (!p.equals("com.android.systemui")) {
-                                activeEventPackage = p;
-                            }
-                        }
-                    }
-                    uiEventSeq.incrementAndGet();
-                    synchronized (uiEventMonitor) {
-                        uiEventMonitor.notifyAll();
-                    }
-                });
-            } catch (Throwable ignored) {}
-
+            // 1. Construct ShellUiAutomatorBridge FIRST because its constructor overwrites OnAccessibilityEventListener!
             ShellUiAutomatorBridge bridge = new ShellUiAutomatorBridge(uiAuto);
             Method getIc = UiAutomatorBridge.class.getDeclaredMethod("getInteractionController");
             getIc.setAccessible(true);
@@ -533,7 +531,45 @@ public class SatsetDaemon {
             mWakeDevice = icCls.getMethod("wakeDevice");
             mSleepDevice = icCls.getMethod("sleepDevice");
 
+            // 2. Configure zero-latency AccessibilityServiceInfo AFTER bridge init
+            AccessibilityServiceInfo info = uiAuto.getServiceInfo();
+            if (info != null) {
+                info.eventTypes = -1; // AccessibilityEvent.TYPES_ALL_MASK
+                info.notificationTimeout = 0L;
+                info.flags |= 64 | 16 | 2;
+                uiAuto.setServiceInfo(info);
+            }
+
+            // 3. Register Sub-Millisecond AccessibilityEvent Reactor AFTER ShellUiAutomatorBridge so it is never overwritten!
+            try {
+                uiAuto.setOnAccessibilityEventListener(new UiAutomation.OnAccessibilityEventListener() {
+                    @Override
+                    public void onAccessibilityEvent(AccessibilityEvent event) {
+                        if (event == null) return;
+                        long now = SystemClock.uptimeMillis();
+                        lastUiEventTime = now;
+                        int type = event.getEventType();
+                        CharSequence pkg = event.getPackageName();
+                        if (pkg != null && pkg.length() > 0) {
+                            String p = pkg.toString();
+                            if (!p.equals("com.android.systemui")) {
+                                activeEventPackage = p;
+                            }
+                        }
+                        if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+                            || type == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+                            lastWindowStateChangeTime = now;
+                        }
+                        uiEventSeq.incrementAndGet();
+                        synchronized (uiEventMonitor) {
+                            uiEventMonitor.notifyAll();
+                        }
+                    }
+                });
+            } catch (Throwable ignored) {}
+
             connected = true;
+            boostTermuxPriorityAsync();
         }
     }
 
@@ -721,14 +757,13 @@ public class SatsetDaemon {
     }
 
     /**
-     * Ultra-fast direct MotionEvent tap (~5ms total instead of InteractionController's 60-100ms!).
+     * Ultra-fast direct MotionEvent tap (~18ms total for reliable touch/ripple registration across React Native & Android).
      */
     private static boolean fastTapPoint(float x, float y, long holdMs) {
         int slot = acquireFreeActionSlot();
         boolean ok = touchDownSlot(slot, x, y);
-        if (holdMs > 0) {
-            try { Thread.sleep(holdMs); } catch (InterruptedException ignored) {}
-        }
+        long dur = Math.max(holdMs, 18L);
+        try { Thread.sleep(dur); } catch (InterruptedException ignored) {}
         touchUpSlot(slot);
         return ok;
     }
@@ -803,24 +838,19 @@ public class SatsetDaemon {
 
     private static int[] getScreenDimensions() {
         long now = SystemClock.uptimeMillis();
-        if (now - lastScreenDimCheck < 400L && cachedScreenW > 400 && cachedScreenH > 400) {
+        if (now - lastScreenDimCheck < 5000L && cachedScreenW > 400 && cachedScreenH > 400) {
             return new int[]{cachedScreenW, cachedScreenH};
         }
         try {
-            List<AccessibilityWindowInfo> windows = uiAuto.getWindows();
-            if (windows != null) {
-                int maxW = 0, maxH = 0;
+            AccessibilityNodeInfo root = uiAuto != null ? uiAuto.getRootInActiveWindow(PREFETCH_FAST) : null;
+            if (root != null) {
                 Rect r = new Rect();
-                for (AccessibilityWindowInfo w : windows) {
-                    w.getBoundsInScreen(r);
-                    if (r.right > maxW) maxW = r.right;
-                    if (r.bottom > maxH) maxH = r.bottom;
-                }
-                if (maxW > 400 && maxH > 400) {
-                    cachedScreenW = maxW;
-                    cachedScreenH = maxH;
+                root.getBoundsInScreen(r);
+                if (r.right > 400 && r.bottom > 400) {
+                    cachedScreenW = r.right;
+                    cachedScreenH = r.bottom;
                     lastScreenDimCheck = now;
-                    return new int[]{maxW, maxH};
+                    return new int[]{cachedScreenW, cachedScreenH};
                 }
             }
         } catch (Throwable ignored) {}
@@ -1047,11 +1077,30 @@ public class SatsetDaemon {
     }
 
     // =========================================================================
-    // UI TREE WALKER (Single-pass O(N) with PREFETCH_HYBRID + 0.01ms Event Cache)
+    // UI TREE WALKER (Single-pass O(N) with PREFETCH_UNINTERRUPTIBLE + 0.01ms Event Cache)
     // =========================================================================
 
-    private static String walkNodeFast(AccessibilityNodeInfo node, List<UiItem> out, Set<String> seen) {
-        if (node == null) return "";
+    private static boolean isUsefulLeafId(String shortId) {
+        if (shortId == null || shortId.isEmpty()) return false;
+        int len = shortId.length();
+        // Obfuscated 3-char decorative ImageView IDs (e.g., zlb, m_h, oxe, kk6) with no text/desc/click are noise
+        if (len <= 3) {
+            return shortId.equals("l37") || shortId.equals("int") || shortId.equals("y1v")
+                || shortId.equals("q0w") || shortId.equals("tjf") || shortId.equals("tjc")
+                || shortId.equals("h9x") || shortId.equals("h_1") || shortId.equals("bs6");
+        }
+        String low = shortId.toLowerCase(Locale.ROOT);
+        return low.contains("search") || low.contains("input") || low.contains("edit")
+            || low.contains("upload") || low.contains("send") || low.contains("next")
+            || low.contains("post") || low.contains("btn") || low.contains("button")
+            || low.contains("cart") || low.contains("close") || low.contains("back")
+            || low.contains("check") || low.contains("select") || low.contains("tab")
+            || low.contains("more") || low.contains("menu") || low.contains("option")
+            || low.contains("share") || low.contains("submit") || low.contains("done");
+    }
+
+    private static String walkNodeFast(AccessibilityNodeInfo node, List<UiItem> out, Set<String> seen, String rootPkg, int depth) {
+        if (node == null || depth > 28 || out.size() > 300) return "";
         if (!node.isVisibleToUser()) return "";
 
         node.getBoundsInScreen(tmpRect);
@@ -1062,24 +1111,32 @@ public class SatsetDaemon {
         int w = r - l;
         int h = b - t;
 
-        if (w <= 4 || h <= 4 || r <= 0 || b <= 0 || l >= 3200 || t >= 3200) {
+        if (w <= 4 || h <= 4 || r <= 0 || b <= 0 || l >= 2800 || t >= 2800) {
             return "";
+        }
+
+        if (depth == 0 && r >= 400 && b >= 400) {
+            cachedScreenW = Math.max(r, 1220);
+            cachedScreenH = Math.max(b, 1220);
+            if (r > b) {
+                cachedScreenW = Math.max(r, 2712);
+                cachedScreenH = Math.max(b, 1220);
+            } else {
+                cachedScreenW = Math.max(r, 1220);
+                cachedScreenH = Math.max(b, 2712);
+            }
+            lastScreenDimCheck = SystemClock.uptimeMillis();
         }
 
         String text = safeStr(node.getText());
         String desc = safeStr(node.getContentDescription());
-        String resId = safeStr(node.getViewIdResourceName());
         String cls = safeStr(node.getClassName());
-        String pkg = safeStr(node.getPackageName());
 
         boolean clickable = node.isClickable();
         boolean longClickable = node.isLongClickable();
         boolean scrollable = node.isScrollable();
         boolean editable = node.isEditable() || cls.endsWith("EditText");
         boolean checkable = node.isCheckable();
-        boolean checked = node.isChecked();
-        boolean focused = node.isFocused();
-        boolean enabled = node.isEnabled();
 
         int childCount = node.getChildCount();
 
@@ -1088,10 +1145,15 @@ public class SatsetDaemon {
 
         StringBuilder childSummary = new StringBuilder();
         for (int i = 0; i < childCount; i++) {
-            AccessibilityNodeInfo child = node.getChild(i);
+            AccessibilityNodeInfo child = null;
+            try {
+                child = node.getChild(i, PREFETCH_FAST);
+            } catch (Throwable t1) {
+                try { child = node.getChild(i); } catch (Throwable ignored) {}
+            }
             if (child != null) {
-                String cText = walkNodeFast(child, out, seen);
-                if (!cText.isEmpty() && childSummary.length() < 120) {
+                String cText = walkNodeFast(child, out, seen, rootPkg, depth + 1);
+                if (!cText.isEmpty() && childSummary.length() < 150) {
                     if (childSummary.length() > 0) childSummary.append(" | ");
                     childSummary.append(cText);
                 }
@@ -1099,9 +1161,14 @@ public class SatsetDaemon {
         }
 
         String childLabel = childSummary.toString();
+        String resId = safeStr(node.getViewIdResourceName());
+        String shortId = resId;
+        int slash = resId.indexOf('/');
+        if (slash >= 0) shortId = resId.substring(slash + 1);
+
         boolean hasContent = !text.isEmpty() || !desc.isEmpty() || ((clickable || editable || checkable) && !childLabel.isEmpty());
-        boolean isInteractive = clickable || editable || scrollable || checkable || (longClickable && (!resId.isEmpty() || hasContent));
-        boolean isLeafWithId = (childCount == 0 && !resId.isEmpty() && w < 1200 && h < 1000);
+        boolean isInteractive = clickable || editable || scrollable || checkable || (longClickable && (!shortId.isEmpty() || hasContent));
+        boolean isLeafWithId = (childCount == 0 && !shortId.isEmpty() && w < 1200 && h < 1000 && isUsefulLeafId(shortId));
         boolean isFullscreenWrapper = ((w >= 1180 && h >= 2200) || (w >= 2200 && h >= 1180)) && !scrollable && !editable && text.isEmpty() && desc.isEmpty();
 
         String sig = l + "," + t + "," + r + "," + b + ":" + text + ":" + desc + ":" + clickable + ":" + editable;
@@ -1111,9 +1178,7 @@ public class SatsetDaemon {
             int dot = cls.lastIndexOf('.');
             if (dot >= 0) shortCls = cls.substring(dot + 1);
 
-            String shortId = resId;
-            int slash = resId.indexOf('/');
-            if (slash >= 0) shortId = resId.substring(slash + 1);
+            String pkg = !rootPkg.isEmpty() ? rootPkg : safeStr(node.getPackageName());
 
             item.node = node;
             item.text = text;
@@ -1135,9 +1200,9 @@ public class SatsetDaemon {
             item.editable = editable;
             item.scrollable = scrollable;
             item.checkable = checkable;
-            item.checked = checked;
-            item.focused = focused;
-            item.enabled = enabled;
+            item.checked = checkable && node.isChecked();
+            item.focused = editable && node.isFocused();
+            item.enabled = true;
 
             if (!pkg.isEmpty() && !pkg.equals("com.android.systemui")) {
                 lastPackage = pkg;
@@ -1158,31 +1223,35 @@ public class SatsetDaemon {
             long curEventSeq = uiEventSeq.get();
 
             // 0.01ms Smart Event-Coherent Tree Cache Hit!
-            if (!forceClearCache && includeAllWindows == cachedIncludeAll && !lastItems.isEmpty()) {
+            if (!forceClearCache && includeAllWindows == cachedIncludeAll && !lastItems.isEmpty() && cachedTreeEventSeq >= 0) {
                 long age = now - cachedTreeTimestamp;
-                if ((curEventSeq == cachedTreeEventSeq && age < 220L) || age < 6L) {
+                if ((curEventSeq == cachedTreeEventSeq && age < 350L) || age < 12L) {
                     return lastItems;
                 }
             }
 
-            if (forceClearCache || lastItems.isEmpty()) {
+            if (forceClearCache) {
                 try { uiAuto.clearCache(); } catch (Throwable ignored) {}
             }
 
-            List<UiItem> raw = new ArrayList<>(112);
-            Set<String> seen = new HashSet<>(112);
+            List<UiItem> raw = new ArrayList<>(96);
+            Set<String> seen = new HashSet<>(96);
             lastPackage = "";
 
-            // Fast-path: Single Binder IPC call with PREFETCH_HYBRID on the active window (4-10ms!)
+            // Fast-path: Single Binder IPC call with PREFETCH_FAST (UNINTERRUPTIBLE + HYBRID + SIBLINGS)
             if (!includeAllWindows) {
                 AccessibilityNodeInfo root = null;
                 try {
-                    root = uiAuto.getRootInActiveWindow(PREFETCH_HYBRID);
+                    root = uiAuto.getRootInActiveWindow(PREFETCH_FAST);
                 } catch (Throwable t1) {
                     try { root = uiAuto.getRootInActiveWindow(); } catch (Throwable ignored) {}
                 }
                 if (root != null) {
-                    walkNodeFast(root, raw, seen);
+                    String rPkg = safeStr(root.getPackageName());
+                    if (!rPkg.isEmpty() && !rPkg.equals("com.android.systemui")) {
+                        lastPackage = rPkg;
+                    }
+                    walkNodeFast(root, raw, seen, rPkg, 0);
                 }
             }
 
@@ -1212,9 +1281,15 @@ public class SatsetDaemon {
                             if (type == 2) continue; // skip soft keyboard
                             if (type == 3 && tmpRect.bottom <= 150) continue; // skip top status bar
                         }
-                        AccessibilityNodeInfo wRoot = w.getRoot();
+                        AccessibilityNodeInfo wRoot = null;
+                        try {
+                            wRoot = w.getRoot(PREFETCH_FAST);
+                        } catch (Throwable t1) {
+                            try { wRoot = w.getRoot(); } catch (Throwable ignored) {}
+                        }
                         if (wRoot != null) {
-                            walkNodeFast(wRoot, raw, seen);
+                            String rPkg = safeStr(wRoot.getPackageName());
+                            walkNodeFast(wRoot, raw, seen, rPkg, 0);
                         }
                     }
                     if (maxW > 400 && maxH > 400) {
@@ -1225,13 +1300,41 @@ public class SatsetDaemon {
                 }
             }
 
-            List<UiItem> items = new ArrayList<>(raw.size());
+            // Consolidate & deduplicate non-interactive child text clones that overlap with their clickable parent
+            List<UiItem> valid = new ArrayList<>(raw.size());
             for (UiItem it : raw) {
-                if (it.node != null) {
-                    it.index = items.size() + 1;
-                    items.add(it);
-                }
+                if (it.node != null) valid.add(it);
             }
+
+            List<UiItem> items = new ArrayList<>(valid.size());
+            for (int i = 0; i < valid.size(); i++) {
+                UiItem it = valid.get(i);
+                if (!it.clickable && !it.editable && !it.scrollable && !it.checkable && !it.longClickable) {
+                    String itLbl = !it.text.isEmpty() ? it.text : it.desc;
+                    boolean mergedIntoParent = false;
+                    if (!itLbl.isEmpty()) {
+                        for (int j = items.size() - 1; j >= 0; j--) {
+                            UiItem p = items.get(j);
+                            if ((p.clickable || p.editable || p.checkable)
+                                && it.cx >= p.left && it.cx <= p.right && it.cy >= p.top && it.cy <= p.bottom) {
+                                String pFull = p.text + " | " + p.desc + " | " + p.childLabel;
+                                if (pFull.contains(itLbl)) {
+                                    if (p.shortId.isEmpty() && !it.shortId.isEmpty()) {
+                                        p.shortId = it.shortId;
+                                        p.resId = it.resId;
+                                    }
+                                    mergedIntoParent = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (mergedIntoParent) continue;
+                }
+                it.index = items.size() + 1;
+                items.add(it);
+            }
+
             if (lastPackage.isEmpty() && !activeEventPackage.isEmpty()) {
                 lastPackage = activeEventPackage;
             }
@@ -1301,6 +1404,80 @@ public class SatsetDaemon {
         return 0;
     }
 
+    private static int[] parseCoordPair(String s) {
+        if (s == null) return null;
+        String t = s.trim();
+        if (t.isEmpty()) return null;
+        String[] parts = t.split("[,\\s]+");
+        if (parts.length == 2 && parts[0].matches("-?\\d+") && parts[1].matches("-?\\d+")) {
+            try {
+                int x = Integer.parseInt(parts[0]);
+                int y = Integer.parseInt(parts[1]);
+                if (x >= 0 && x <= 3000 && y >= 0 && y <= 3000) {
+                    return new int[]{x, y};
+                }
+            } catch (NumberFormatException ignored) {}
+        }
+        return null;
+    }
+
+    private static String performSmartSubmit(AccessibilityNodeInfo editNode) {
+        long t0 = SystemClock.uptimeMillis();
+        long seq0 = uiEventSeq.get();
+        boolean imeOk = false;
+        if (editNode != null) {
+            try {
+                // Android API 30+ ACTION_IME_ENTER (0x01020054 = 16908372) triggers EditorInfo.IME_ACTION_SEARCH/DONE directly!
+                imeOk = editNode.performAction(0x01020054);
+            } catch (Throwable ignored) {}
+        }
+        try {
+            synchronized (lock) {
+                mSendKey.invoke(ic, 66, 0); // KEYCODE_ENTER
+                mSendKey.invoke(ic, 84, 0); // KEYCODE_SEARCH
+            }
+        } catch (Throwable ignored) {}
+
+        waitForActionReaction(seq0, 65L);
+
+        // Check if an explicit Search button is next to the top bar or if EditText is still focused
+        try {
+            List<UiItem> cur = refreshTree(false, true);
+            UiItem focusedEd = null;
+            for (UiItem it : cur) {
+                if (it.editable && it.focused) {
+                    focusedEd = it;
+                    break;
+                }
+            }
+            if (focusedEd != null || cur.size() <= 8) {
+                // Look for adjacent Search / Cari button in top bar (y < 360)
+                for (UiItem it : cur) {
+                    if (it.clickable && !it.editable && it.cy < 320 && it.cx > 850) {
+                        String lbl = (it.text + " " + it.desc + " " + it.shortId).toLowerCase(Locale.ROOT);
+                        if (lbl.contains("search") || lbl.contains("cari")) {
+                            fastTapPoint(it.cx, it.cy, 5L);
+                            waitForActionReaction(uiEventSeq.get(), 80L);
+                            cachedTreeEventSeq = -1L;
+                            return "OK\tSUBMIT (top_search_btn " + it.cx + "," + it.cy + ") in " + (SystemClock.uptimeMillis() - t0) + "ms";
+                        }
+                    }
+                }
+                // Fallback: tap soft keyboard bottom-right IME action key (Search/Go/Enter at 1110, 2580 on 1220x2712)
+                int[] dims = getScreenDimensions();
+                int imeX = dims[0] - 110;
+                int imeY = dims[1] - 132;
+                fastTapPoint(imeX, imeY, 5L);
+                waitForActionReaction(uiEventSeq.get(), 80L);
+                cachedTreeEventSeq = -1L;
+                return "OK\tSUBMIT (ime_enter=" + imeOk + " + ime_key " + imeX + "," + imeY + ") in " + (SystemClock.uptimeMillis() - t0) + "ms";
+            }
+        } catch (Throwable ignored) {}
+
+        cachedTreeEventSeq = -1L;
+        return "OK\tSUBMIT (ime_enter=" + imeOk + ") in " + (SystemClock.uptimeMillis() - t0) + "ms";
+    }
+
     private static UiItem findBestItem(List<UiItem> items, String target) {
         if (target == null || target.isEmpty()) return null;
         String t = target.trim();
@@ -1316,6 +1493,7 @@ public class SatsetDaemon {
         UiItem best = null;
         int bestScore = 0;
         for (UiItem item : items) {
+            if ("com.termux".equals(item.pkg)) continue;
             int s = scoreMatch(item, t);
             if (s > bestScore) {
                 bestScore = s;
@@ -1358,6 +1536,30 @@ public class SatsetDaemon {
         }
     }
 
+    private static void waitUntilLeftTermux(String expectedPkg, long maxWaitMs) {
+        long deadline = SystemClock.uptimeMillis() + maxWaitMs;
+        while (SystemClock.uptimeMillis() < deadline) {
+            waitForWindowTransition(expectedPkg, Math.min(85L, deadline - SystemClock.uptimeMillis()));
+            try {
+                List<UiItem> items = refreshTree(false, true);
+                if (!"com.termux".equals(lastPackage) && !items.isEmpty()) {
+                    break;
+                }
+            } catch (Throwable ignored) {}
+        }
+        cachedTreeEventSeq = -1L;
+    }
+
+    private static void ensureNotInTermux() {
+        if (lastTargetApp == null || lastTargetApp.isEmpty()) return;
+        try {
+            List<UiItem> items = refreshTree(false, false);
+            if ("com.termux".equals(lastPackage) || (items.isEmpty() && "com.termux".equals(activeEventPackage))) {
+                fastOpenTarget(lastTargetApp);
+            }
+        } catch (Throwable ignored) {}
+    }
+
     private static String fastOpenTarget(String target) {
         long t0 = System.currentTimeMillis();
         String raw = target == null ? "" : target.trim();
@@ -1365,13 +1567,16 @@ public class SatsetDaemon {
         String key = raw.toLowerCase(Locale.ROOT);
 
         if (key.equals("termux") || key.equals("com.termux")) {
+            lastTargetApp = "";
             return returnToTermuxFast(t0);
         }
+
+        lastTargetApp = raw;
 
         if (raw.contains("://") || key.startsWith("http") || key.startsWith("mailto:") || key.startsWith("tel:")
             || key.startsWith("geo:") || key.startsWith("snssdk") || key.startsWith("shopeeid:")) {
             execCmdAsync(new String[]{"/system/bin/cmd", "activity", "start", "-a", "android.intent.action.VIEW", "-d", raw});
-            waitForWindowTransition("", 90L);
+            waitUntilLeftTermux("", 380L);
             return "OK\tOPEN_URI (" + raw + ") in " + (System.currentTimeMillis() - t0) + "ms";
         }
 
@@ -1386,15 +1591,23 @@ public class SatsetDaemon {
             pkg = raw.substring(0, raw.indexOf('/'));
         }
 
+        // If target package is already in foreground, don't re-fire intent (0ms no-op!)
+        try {
+            refreshTree(false, false);
+            if (pkg.equals(lastPackage)) {
+                return "OK\tOPEN (" + pkg + " already active) in " + (System.currentTimeMillis() - t0) + "ms";
+            }
+        } catch (Throwable ignored) {}
+
         if (!comp.isEmpty()) {
             execCmdAsync(new String[]{
                 "/system/bin/cmd", "activity", "start",
                 "-a", "android.intent.action.MAIN",
                 "-c", "android.intent.category.LAUNCHER",
-                "--activity-single-top",
+                "-f", "0x10200000",
                 "-n", comp
             });
-            waitForWindowTransition(pkg, 90L);
+            waitUntilLeftTermux(pkg, 380L);
             return "OK\tOPEN (" + comp + ") in " + (System.currentTimeMillis() - t0) + "ms";
         }
 
@@ -1407,15 +1620,15 @@ public class SatsetDaemon {
                 "/system/bin/cmd", "activity", "start",
                 "-a", "android.intent.action.MAIN",
                 "-c", "android.intent.category.LAUNCHER",
-                "--activity-single-top",
+                "-f", "0x10200000",
                 "-n", lastLine
             });
-            waitForWindowTransition(pkg, 90L);
+            waitUntilLeftTermux(pkg, 380L);
             return "OK\tOPEN (" + lastLine + ") in " + (System.currentTimeMillis() - t0) + "ms";
         }
 
         execCmdAsync(new String[]{"monkey", "-p", pkg, "-c", "android.intent.category.LAUNCHER", "1"});
-        waitForWindowTransition(pkg, 110L);
+        waitUntilLeftTermux(pkg, 420L);
         return "OK\tOPEN (" + pkg + ") in " + (System.currentTimeMillis() - t0) + "ms";
     }
 
@@ -1599,6 +1812,155 @@ public class SatsetDaemon {
         return tokens;
     }
 
+    private static void waitForActionReaction(long seqBefore, long maxWaitMs) {
+        long deadline = SystemClock.uptimeMillis() + maxWaitMs;
+        synchronized (uiEventMonitor) {
+            while (uiEventSeq.get() == seqBefore) {
+                long rem = deadline - SystemClock.uptimeMillis();
+                if (rem <= 0) break;
+                try {
+                    uiEventMonitor.wait(Math.min(12L, rem));
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+        }
+        // Brief quiet settle after first transition event
+        long rem = deadline - SystemClock.uptimeMillis();
+        if (rem > 6L) {
+            waitForNextUiEvent(Math.min(20L, rem));
+        }
+        cachedTreeEventSeq = -1L;
+    }
+
+    private static String captureSettledUi(long maxSettleMs) throws Exception {
+        long start = SystemClock.uptimeMillis();
+        int attempt = 0;
+        long dynamicBudget = maxSettleMs;
+        while (true) {
+            List<UiItem> items = refreshTree(false, attempt > 0);
+            if (items.size() >= 4 && !lastPackage.isEmpty() && !"com.termux".equals(lastPackage)) {
+                break;
+            }
+            if (items.size() <= 2) {
+                dynamicBudget = Math.max(maxSettleMs, 780L);
+            }
+            long el = SystemClock.uptimeMillis() - start;
+            if (el >= dynamicBudget) break;
+            attempt++;
+            waitForNextUiEvent(Math.min(48L, dynamicBudget - el));
+            cachedTreeEventSeq = -1L;
+        }
+        return handleCommand("UI\t0\t");
+    }
+
+    private static int parseFirstIntAfter(String text, String prefix) {
+        int idx = text.indexOf(prefix);
+        if (idx < 0) return -1;
+        StringBuilder sb = new StringBuilder();
+        for (int i = idx + prefix.length(); i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c >= '0' && c <= '9') sb.append(c);
+            else if (c == '.' || c == ',' || c == ' ') continue;
+            else if (sb.length() > 0) break;
+        }
+        if (sb.length() == 0) return -1;
+        try { return Integer.parseInt(sb.toString()); } catch (NumberFormatException e) { return -1; }
+    }
+
+    private static int parseDiscountPercent(String text) {
+        int bestPct = 0;
+        int len = text.length();
+        for (int i = 0; i < len; i++) {
+            if (text.charAt(i) == '%') {
+                int j = i - 1;
+                while (j >= 0 && text.charAt(j) == ' ') j--;
+                int end = j + 1;
+                while (j >= 0 && text.charAt(j) >= '0' && text.charAt(j) <= '9') j--;
+                if (j + 1 < end) {
+                    try {
+                        int v = Integer.parseInt(text.substring(j + 1, end));
+                        if (v > bestPct && v <= 100) bestPct = v;
+                    } catch (NumberFormatException ignored) {}
+                }
+            }
+        }
+        return bestPct;
+    }
+
+    private static String handleTapBest(String query, String mode, int maxScrolls) throws Exception {
+        long t0 = SystemClock.uptimeMillis();
+        String[] kwGroups = (query == null || query.trim().isEmpty()) ? new String[0] : query.toLowerCase(Locale.ROOT).split("\\|\\|");
+        UiItem bestItem = null;
+        double bestMetric = -1e9;
+        int bestScroll = 0;
+
+        for (int s = 0; s <= maxScrolls; s++) {
+            List<UiItem> items = refreshTree(false, s > 0);
+            for (UiItem it : items) {
+                if (!it.clickable || "com.termux".equals(it.pkg)) continue;
+                int w = it.right - it.left;
+                int h = it.bottom - it.top;
+                if (w < 180 || h < 70 || it.cy < 240 || it.cy > 2500) continue;
+
+                String full = (it.text + " | " + it.desc + " | " + it.childLabel).trim();
+                String low = full.toLowerCase(Locale.ROOT);
+                if (low.isEmpty()) continue;
+
+                boolean kwMatch = kwGroups.length == 0;
+                int kwBonus = 0;
+                for (String grp : kwGroups) {
+                    String g = grp.trim();
+                    if (g.isEmpty()) continue;
+                    String[] words = g.split("\\s+");
+                    int matchedWords = 0;
+                    for (String wStr : words) {
+                        if (low.contains(wStr)) matchedWords++;
+                    }
+                    if (matchedWords > 0 && (matchedWords == words.length || (words.length >= 2 && matchedWords >= words.length - 1))) {
+                        kwMatch = true;
+                        kwBonus = Math.max(kwBonus, matchedWords * 25);
+                    }
+                }
+                if (!kwMatch) continue;
+
+                int pct = parseDiscountPercent(full);
+                int rpPrice = parseFirstIntAfter(full, "Rp");
+                int diskRp = parseFirstIntAfter(low, "diskon rp");
+                if (diskRp > 0 && diskRp < 500 && low.contains("rb")) diskRp *= 1000;
+
+                double metric = kwBonus;
+                if ("cheap".equals(mode) || "min-price".equals(mode)) {
+                    if (rpPrice <= 0) continue;
+                    metric += (1_000_000.0 - rpPrice) + (pct * 500.0);
+                } else {
+                    // Default: highest discount + reasonable price
+                    metric += (pct * 1000.0) + (diskRp * 0.5) + (rpPrice > 0 ? Math.max(0, 100_000 - rpPrice) * 0.1 : 0);
+                }
+
+                if (metric > bestMetric) {
+                    bestMetric = metric;
+                    bestItem = it;
+                    bestScroll = s;
+                }
+            }
+            if (bestItem != null && (bestMetric >= 1000 || s >= 1)) break;
+            if (s < maxScrolls) {
+                handleCommand("SCROLL\tdown\t8");
+                waitForNextUiEvent(85L);
+            }
+        }
+
+        if (bestItem == null) {
+            return "ERR\tTAP_BEST could not find card matching \"" + query + "\"";
+        }
+        fastTapPoint(bestItem.cx, bestItem.cy, 5L);
+        cachedTreeEventSeq = -1L;
+        String lbl = !bestItem.text.isEmpty() ? bestItem.text : (!bestItem.childLabel.isEmpty() ? bestItem.childLabel : bestItem.desc);
+        return "OK\tTAP_BEST (" + bestItem.cx + "," + bestItem.cy + ") [#" + bestItem.index + " \"" + cleanStr(lbl, 65) + "\"] after "
+            + bestScroll + " scrolls in " + (SystemClock.uptimeMillis() - t0) + "ms";
+    }
+
     private static String executePipelineStep(String stepStr) throws Exception {
         List<String> tok = tokenizeStep(stepStr);
         if (tok.isEmpty()) return "OK\tEMPTY";
@@ -1611,13 +1973,108 @@ public class SatsetDaemon {
             case "app":
                 return fastOpenTarget(String.join(" ", rest));
 
+            case "tap-best":
+            case "tapbest": {
+                String mode = "discount";
+                int maxScrolls = 2;
+                List<String> kw = new ArrayList<>();
+                for (int i = 0; i < rest.size(); i++) {
+                    String a = rest.get(i);
+                    if (a.equals("--cheap") || a.equals("--min-price") || a.equals("-c")) mode = "cheap";
+                    else if (a.equals("--discount") || a.equals("-d")) mode = "discount";
+                    else if (a.matches("\\d+")) maxScrolls = Integer.parseInt(a);
+                    else kw.add(a);
+                }
+                return handleTapBest(String.join(" ", kw), mode, maxScrolls);
+            }
+
+            case "if-tap":
+            case "iftap":
+            case "try-tap":
+            case "trytap": {
+                long waitMs = 0L;
+                List<String> cleaned = new ArrayList<>();
+                for (int i = 0; i < rest.size(); i++) {
+                    String a = rest.get(i);
+                    if ((a.equals("--wait") || a.equals("-w")) && i + 1 < rest.size()) {
+                        waitMs = Long.parseLong(rest.get(++i));
+                    } else {
+                        cleaned.add(a);
+                    }
+                }
+                String target = String.join(" ", cleaned).trim();
+                if (target.matches("\\d+")) target = "#" + target;
+                // Strictly filter if-tap so it never taps com.termux or huge multi-line containers
+                List<UiItem> items = refreshTree(false, false);
+                for (String cand : target.split("\\|\\|")) {
+                    String c = cand.trim();
+                    int[] xy = parseCoordPair(c);
+                    if (xy != null) {
+                        fastTapPoint(xy[0], xy[1], 5L);
+                        cachedTreeEventSeq = -1L;
+                        return "OK\tIF_TAP (" + xy[0] + "," + xy[1] + ")";
+                    }
+                    UiItem hit = findBestItem(items, c);
+                    if (hit != null && !"com.termux".equals(hit.pkg)) {
+                        String lbl = !hit.text.isEmpty() ? hit.text : (!hit.desc.isEmpty() ? hit.desc : hit.childLabel);
+                        if (c.startsWith("#") || c.startsWith("id:") || lbl.length() <= 48) {
+                            fastTapPoint(hit.cx, hit.cy, 5L);
+                            cachedTreeEventSeq = -1L;
+                            return "OK\tIF_TAP (" + hit.cx + "," + hit.cy + ") [#" + hit.index + " \"" + cleanStr(lbl, 40) + "\"]";
+                        }
+                    }
+                }
+                if (waitMs > 0) {
+                    String res = handleCommand("TAP\t" + target + "\t" + waitMs);
+                    if (!res.startsWith("ERR\t")) return res;
+                }
+                return "OK\tSKIP_TAP (\"" + target + "\" not present)";
+            }
+
+            case "scroll-to":
+            case "scrollto":
+            case "scroll-tap":
+            case "scrolltap": {
+                boolean doTap = sub.contains("tap");
+                if (rest.isEmpty()) return "ERR\tUsage: " + sub + " <target> [down|up] [max_scrolls]";
+                String target = rest.get(0);
+                String dir = (rest.size() > 1 && (rest.get(1).equalsIgnoreCase("up") || rest.get(1).equalsIgnoreCase("down")
+                    || rest.get(1).equalsIgnoreCase("left") || rest.get(1).equalsIgnoreCase("right"))) ? rest.get(1) : "down";
+                int maxScrolls = 5;
+                for (int i = 1; i < rest.size(); i++) {
+                    if (rest.get(i).matches("\\d+")) maxScrolls = Integer.parseInt(rest.get(i));
+                }
+                String[] candidates = target.split("\\|\\|");
+                for (int s = 0; s <= maxScrolls; s++) {
+                    List<UiItem> items = refreshTree(false, s > 0);
+                    UiItem hit = null;
+                    for (String cand : candidates) {
+                        hit = findBestItem(items, cand.trim());
+                        if (hit != null) break;
+                    }
+                    if (hit != null) {
+                        if (doTap) {
+                            fastTapPoint(hit.cx, hit.cy, 5L);
+                            cachedTreeEventSeq = -1L;
+                            return "OK\tSCROLL_TAP (" + hit.cx + "," + hit.cy + ") [#" + hit.index + "] after " + s + " scrolls";
+                        }
+                        return "OK\tSCROLL_FOUND (" + hit.cx + "," + hit.cy + ") [#" + hit.index + "] after " + s + " scrolls";
+                    }
+                    if (s < maxScrolls) {
+                        handleCommand("SCROLL\t" + dir + "\t8");
+                        waitForNextUiEvent(65L);
+                    }
+                }
+                return "ERR\tTarget \"" + target + "\" not found after " + maxScrolls + " scrolls";
+            }
+
             case "tap":
             case "click":
             case "t":
             case "longtap":
             case "longclick": {
                 String verb = sub.startsWith("long") ? "LONGTAP" : "TAP";
-                long waitMs = 3000L;
+                long waitMs = 700L;
                 List<String> cleaned = new ArrayList<>();
                 for (int i = 0; i < rest.size(); i++) {
                     String a = rest.get(i);
@@ -1629,16 +2086,11 @@ public class SatsetDaemon {
                         cleaned.add(a);
                     }
                 }
-                if (cleaned.size() == 2 && cleaned.get(0).matches("-?\\d+") && cleaned.get(1).matches("-?\\d+")) {
-                    return handleCommand(verb + "\t" + cleaned.get(0) + "\t" + cleaned.get(1));
-                }
-                if (cleaned.size() == 1 && cleaned.get(0).contains(",")) {
-                    String[] p = cleaned.get(0).split(",", 2);
-                    if (p[0].matches("-?\\d+") && p[1].matches("-?\\d+")) {
-                        return handleCommand(verb + "\t" + p[0] + "\t" + p[1]);
-                    }
-                }
                 String target = String.join(" ", cleaned).trim();
+                int[] xy = parseCoordPair(target);
+                if (xy != null) {
+                    return handleCommand(verb + "\t" + xy[0] + "\t" + xy[1]);
+                }
                 if (target.matches("\\d+")) target = "#" + target;
                 return handleCommand(verb + "\t" + target + "\t" + waitMs);
             }
@@ -1651,7 +2103,7 @@ public class SatsetDaemon {
             case "search": {
                 String appendFlag = sub.equals("append") ? "1" : "0";
                 boolean pressEnter = sub.equals("search");
-                long waitMs = 2500L;
+                long waitMs = 900L;
                 String target = "";
                 List<String> cleaned = new ArrayList<>();
                 for (int i = 0; i < rest.size(); i++) {
@@ -1672,19 +2124,24 @@ public class SatsetDaemon {
                 if (target.isEmpty() && cleaned.size() >= 2 && (
                     cleaned.get(0).startsWith("#") || cleaned.get(0).startsWith("id:") ||
                     cleaned.get(0).startsWith("desc:") || cleaned.get(0).startsWith("text:") ||
-                    cleaned.get(0).startsWith("class:"))) {
+                    cleaned.get(0).startsWith("class:") || parseCoordPair(cleaned.get(0)) != null)) {
                     target = cleaned.get(0);
                     textVal = String.join(" ", cleaned.subList(1, cleaned.size()));
                 } else {
                     textVal = String.join(" ", cleaned);
                 }
-                String b64 = Base64.getEncoder().encodeToString(textVal.getBytes(StandardCharsets.UTF_8));
-                String res = handleCommand("SET_B64\t" + target + "\t" + b64 + "\t" + waitMs + "\t" + appendFlag);
-                if (pressEnter) {
-                    String er = handleCommand("NAV\tenter");
-                    return res + " + " + er;
+
+                // If 'search <query>' is called and no EditText is currently focused/present, auto-tap the screen's search bar first!
+                if (sub.equals("search") && target.isEmpty()) {
+                    List<UiItem> cur = refreshTree(false, false);
+                    if (findEditableItem(cur) == null) {
+                        handleCommand("TAP\tid:search_prefill_click || id:inputSearchBar || id:hvp || id:search || desc:Search || Cari || Gratis Ongkir\t600");
+                        waitForActionReaction(uiEventSeq.get(), 110L);
+                    }
                 }
-                return res;
+
+                String b64 = Base64.getEncoder().encodeToString(textVal.getBytes(StandardCharsets.UTF_8));
+                return handleCommand("SET_B64\t" + target + "\t" + b64 + "\t" + waitMs + "\t" + appendFlag + "\t" + (pressEnter ? "1" : "0"));
             }
 
             case "tap-set":
@@ -1698,12 +2155,9 @@ public class SatsetDaemon {
                     if (a.equals("--enter") || a.equals("-e")) pressEnter = true;
                     else txtParts.add(a);
                 }
-                String tapRes = handleCommand("TAP\t" + target + "\t2500");
+                String tapRes = handleCommand("TAP\t" + target + "\t800");
                 String b64 = Base64.getEncoder().encodeToString(String.join(" ", txtParts).getBytes(StandardCharsets.UTF_8));
-                String setRes = handleCommand("SET_B64\t\t" + b64 + "\t2000\t0");
-                if (pressEnter) {
-                    return tapRes + " -> " + setRes + " -> " + handleCommand("NAV\tenter");
-                }
+                String setRes = handleCommand("SET_B64\t\t" + b64 + "\t800\t0\t" + (pressEnter ? "1" : "0"));
                 return tapRes + " -> " + setRes;
             }
 
@@ -1727,6 +2181,19 @@ public class SatsetDaemon {
             case "wait-gone":
             case "wait_gone": {
                 String verb = sub.contains("gone") ? "WAIT_GONE" : "WAIT";
+                // Fix: single numeric arg (e.g. "wait 200" or "wait 0.25") is a millisecond/second UI settle wait, NOT a text search!
+                if (!sub.contains("gone") && rest.size() == 1 && rest.get(0).matches("\\d+(\\.\\d+)?")) {
+                    double v = Double.parseDouble(rest.get(0));
+                    long ms = (v < 15.0 && rest.get(0).contains(".")) ? Math.round(v * 1000.0) : Math.round(v);
+                    long t0 = SystemClock.uptimeMillis();
+                    waitForActionReaction(uiEventSeq.get(), Math.min(ms, 300L));
+                    long rem = ms - (SystemClock.uptimeMillis() - t0);
+                    if (rem > 0 && rem <= 2000L) {
+                        try { Thread.sleep(rem); } catch (InterruptedException ignored) {}
+                    }
+                    cachedTreeEventSeq = -1L;
+                    return "OK\tWAIT_SETTLE " + (SystemClock.uptimeMillis() - t0) + "ms";
+                }
                 long timeout = 4000L;
                 String q;
                 if (rest.size() >= 2 && rest.get(rest.size() - 1).matches("\\d+")) {
@@ -1791,6 +2258,17 @@ public class SatsetDaemon {
     }
 
     private static String handleCommand(String line) throws Exception {
+        if (line != null && line.endsWith("\t+UI")) {
+            long seqBefore = uiEventSeq.get();
+            String coreLine = line.substring(0, line.length() - 4);
+            String res = handleCommand(coreLine);
+            if (res != null && res.startsWith("OK\t")) {
+                waitForActionReaction(seqBefore, 80L);
+                String uiOut = captureSettledUi(220L);
+                return res + "\n\n--- CURRENT UI ---\n" + uiOut;
+            }
+            return res;
+        }
         long t0 = System.currentTimeMillis();
         String[] parts = line.split("\t", -1);
         String cmd = parts[0].toUpperCase(Locale.ROOT).trim();
@@ -1896,12 +2374,10 @@ public class SatsetDaemon {
                 String target = parts.length > 1 ? parts[1].trim() : "";
                 String b64 = parts.length > 2 ? parts[2].trim() : "";
                 boolean pressEnter = parts.length > 3 && "1".equals(parts[3]);
-                String tapRes = handleCommand("TAP\t" + target + "\t2500");
+                String tapRes = handleCommand("TAP\t" + target + "\t800");
                 if (tapRes.startsWith("ERR\t")) return tapRes;
-                String setRes = handleCommand("SET_B64\t\t" + b64 + "\t2000\t0");
-                if (pressEnter) {
-                    return tapRes + " -> " + setRes + " -> " + handleCommand("NAV\tenter");
-                }
+                waitForActionReaction(uiEventSeq.get(), 55L);
+                String setRes = handleCommand("SET_B64\t\t" + b64 + "\t800\t0\t" + (pressEnter ? "1" : "0"));
                 return tapRes + " -> " + setRes;
             }
 
@@ -1912,6 +2388,8 @@ public class SatsetDaemon {
                 String lastSub = "";
                 int stepIdx = 0;
 
+                // Collect valid non-empty steps first so we know when a step is followed by another step
+                List<String> validSteps = new ArrayList<>(parts.length);
                 for (int i = 2; i < parts.length; i++) {
                     String stepStr = parts[i].trim();
                     if (stepStr.isEmpty()) continue;
@@ -1920,25 +2398,48 @@ public class SatsetDaemon {
                         returnTermux = true;
                         continue;
                     }
+                    validSteps.add(stepStr);
+                }
+
+                for (int i = 0; i < validSteps.size(); i++) {
+                    String stepStr = validSteps.get(i);
+                    String low = stepStr.toLowerCase(Locale.ROOT);
                     stepIdx++;
                     int sp = low.indexOf(' ');
                     lastSub = (sp > 0) ? low.substring(0, sp) : low;
 
+                    long seqBefore = uiEventSeq.get();
                     String res = executePipelineStep(stepStr);
                     out.append("[").append(stepIdx).append("] ").append(stepStr).append(" -> ").append(res).append("\n");
                     if (res.startsWith("ERR\t") && !lastSub.equals("wake") && !lastSub.equals("sleep")
-                        && !lastSub.equals("scan-color") && !lastSub.equals("tap-color")) {
+                        && !lastSub.equals("scan-color") && !lastSub.equals("tap-color")
+                        && !lastSub.equals("if-tap") && !lastSub.equals("try-tap")) {
                         break;
+                    }
+
+                    // If another step follows in the pipeline, wait for UI reaction so the next step never reads stale pre-tap UI!
+                    if (i + 1 < validSteps.size()) {
+                        String nextLow = validSteps.get(i + 1).toLowerCase(Locale.ROOT);
+                        if (!nextLow.startsWith("wait ") && !nextLow.startsWith("sleep ") && !nextLow.startsWith("delay ")) {
+                            if (lastSub.equals("open") || lastSub.equals("launch") || lastSub.equals("tap")
+                                || lastSub.equals("click") || lastSub.equals("tap-set") || lastSub.equals("scroll")
+                                || lastSub.equals("swipe") || lastSub.equals("back") || lastSub.equals("enter")
+                                || lastSub.equals("search")) {
+                                waitForActionReaction(seqBefore, 95L);
+                            }
+                        }
                     }
                 }
 
-                // Event-driven micro-settle before capturing target app's final UI (no blind 100ms sleep!)
+                // Event-driven smart settle before capturing target app's final UI (prevents ITEMS: 0 / ITEMS: 1 ViewPager!)
                 if (!lastSub.equals("ui") && !lastSub.equals("dump") && !lastSub.equals("clean")) {
                     if (lastSub.equals("tap") || lastSub.equals("click") || lastSub.equals("open")
-                        || lastSub.equals("scroll") || lastSub.equals("swipe") || lastSub.equals("search") || lastSub.equals("enter")) {
-                        waitForNextUiEvent(45L);
+                        || lastSub.equals("scroll") || lastSub.equals("swipe") || lastSub.equals("search")
+                        || lastSub.equals("enter") || lastSub.equals("back") || lastSub.equals("tap-set")
+                        || lastSub.equals("scroll-tap") || lastSub.equals("if-tap")) {
+                        waitForNextUiEvent(35L);
                     }
-                    String uiOut = handleCommand("UI\t0\t");
+                    String uiOut = captureSettledUi(240L);
                     out.append("\n--- CURRENT UI ---\n").append(uiOut);
                 }
 
@@ -1953,8 +2454,13 @@ public class SatsetDaemon {
             case "DUMP": {
                 boolean includeAll = parts.length > 1 && "1".equals(parts[1]);
                 String filter = parts.length > 2 ? parts[2].trim() : "";
-                List<UiItem> items = refreshTree(includeAll, false);
-                if (items.isEmpty()) {
+                boolean forceRefresh = false;
+                if ("--fresh".equalsIgnoreCase(filter) || "fresh".equalsIgnoreCase(filter)) {
+                    forceRefresh = true;
+                    filter = "";
+                }
+                List<UiItem> items = refreshTree(includeAll, forceRefresh);
+                if (items.isEmpty() && !forceRefresh) {
                     items = refreshTree(includeAll, true);
                 }
                 int[] dims = getScreenDimensions();
@@ -1968,7 +2474,7 @@ public class SatsetDaemon {
                 int shown = 0;
                 for (UiItem item : items) {
                     if (!filter.isEmpty() && scoreMatch(item, filter) == 0) continue;
-                    sb.append(item.formatLine()).append("\n");
+                    sb.append(item.formatLine(!filter.isEmpty())).append("\n");
                     shown++;
                 }
                 if (!filter.isEmpty() && shown == 0) {
@@ -2001,6 +2507,7 @@ public class SatsetDaemon {
             case "TAP":
             case "LONGTAP": {
                 ensureConnected();
+                ensureNotInTermux();
                 boolean isLong = "LONGTAP".equals(cmd);
                 if (parts.length >= 3 && parts[1].matches("-?\\d+") && parts[2].matches("-?\\d+")) {
                     int x = Integer.parseInt(parts[1]);
@@ -2019,6 +2526,20 @@ public class SatsetDaemon {
                 long waitMs = parts.length > 2 && !parts[2].isEmpty() ? Long.parseLong(parts[2]) : 0L;
 
                 String[] candidates = target.split("\\|\\|");
+                int[] fallbackCoord = null;
+                for (String cand : candidates) {
+                    int[] xy = parseCoordPair(cand.trim());
+                    if (xy != null) {
+                        fallbackCoord = xy;
+                        break;
+                    }
+                }
+                if (candidates.length == 1 && fallbackCoord != null) {
+                    boolean ok = fastTapPoint(fallbackCoord[0], fallbackCoord[1], isLong ? 520L : 5L);
+                    cachedTreeEventSeq = -1L;
+                    return (ok ? "OK" : "ERR") + "\t" + cmd + " (" + fallbackCoord[0] + "," + fallbackCoord[1] + ") in " + (System.currentTimeMillis() - t0) + "ms";
+                }
+
                 UiItem hit = null;
                 long startWait = System.currentTimeMillis();
                 int pollCount = 0;
@@ -2029,10 +2550,17 @@ public class SatsetDaemon {
                     }
                     List<UiItem> items = refreshTree(false, pollCount > 0 && (pollCount % 5 == 0));
                     for (String cand : candidates) {
-                        hit = findBestItem(items, cand.trim());
+                        String c = cand.trim();
+                        if (parseCoordPair(c) != null) continue;
+                        hit = findBestItem(items, c);
                         if (hit != null) break;
                     }
                     if (hit != null) break;
+                    if (fallbackCoord != null) {
+                        boolean ok = fastTapPoint(fallbackCoord[0], fallbackCoord[1], isLong ? 520L : 5L);
+                        cachedTreeEventSeq = -1L;
+                        return (ok ? "OK" : "ERR") + "\t" + cmd + " (" + fallbackCoord[0] + "," + fallbackCoord[1] + ") [coord-fallback] in " + (System.currentTimeMillis() - t0) + "ms";
+                    }
                     long elapsed = System.currentTimeMillis() - startWait;
                     if (elapsed >= waitMs) break;
                     pollCount++;
@@ -2043,26 +2571,23 @@ public class SatsetDaemon {
                     return "ERR\tTarget not found: \"" + target + "\" (waited " + (System.currentTimeMillis() - t0) + "ms)";
                 }
 
-                // Direct 5ms MotionEvent injection first; fallback to AccessibilityNodeInfo or InteractionController
-                boolean ok = fastTapPoint(hit.cx, hit.cy, isLong ? 520L : 5L);
-                if (!ok) {
-                    synchronized (lock) {
-                        if (hit.node != null) {
-                            int action = isLong ? 32 : 16;
-                            AccessibilityNodeInfo cur = hit.node;
-                            while (cur != null) {
-                                if (cur.performAction(action)) {
-                                    ok = true;
-                                    break;
-                                }
-                                cur = cur.getParent();
+                // Dual tap strategy: performAction(ACTION_CLICK) + fastTapPoint MotionEvent ensures both View hierarchy and Canvas/React Native react!
+                boolean ok = false;
+                if (hit.node != null) {
+                    try {
+                        int action = isLong ? 32 : 16;
+                        AccessibilityNodeInfo cur = hit.node;
+                        while (cur != null) {
+                            if (cur.performAction(action)) {
+                                ok = true;
+                                break;
                             }
+                            cur = cur.getParent();
                         }
-                        if (!ok) {
-                            ok = (Boolean) (isLong ? mLongTapNoSync.invoke(ic, hit.cx, hit.cy) : mClickNoSync.invoke(ic, hit.cx, hit.cy));
-                        }
-                    }
+                    } catch (Throwable ignored) {}
                 }
+                boolean tapOk = fastTapPoint(hit.cx, hit.cy, isLong ? 520L : 22L);
+                ok = ok || tapOk;
                 cachedTreeEventSeq = -1L;
                 long dt = System.currentTimeMillis() - t0;
                 String label = !hit.text.isEmpty() ? hit.text : (!hit.desc.isEmpty() ? hit.desc : (!hit.childLabel.isEmpty() ? hit.childLabel : hit.shortId));
@@ -2698,9 +3223,17 @@ public class SatsetDaemon {
             case "SET_B64": {
                 String target = parts.length > 1 ? parts[1].trim() : "";
                 String b64 = parts.length > 2 ? parts[2].trim() : "";
-                long waitMs = parts.length > 3 && !parts[3].isEmpty() ? Long.parseLong(parts[3]) : 2000L;
+                long waitMs = parts.length > 3 && !parts[3].isEmpty() ? Long.parseLong(parts[3]) : 900L;
                 boolean append = parts.length > 4 && "1".equals(parts[4]);
+                boolean pressEnter = parts.length > 5 && "1".equals(parts[5]);
                 String text = new String(Base64.getDecoder().decode(b64), StandardCharsets.UTF_8);
+
+                int[] targetXy = parseCoordPair(target);
+                if (targetXy != null) {
+                    fastTapPoint(targetXy[0], targetXy[1], 5L);
+                    waitForNextUiEvent(55L);
+                    target = "";
+                }
 
                 UiItem hit = null;
                 long startWait = System.currentTimeMillis();
@@ -2726,7 +3259,7 @@ public class SatsetDaemon {
                 AccessibilityNodeInfo targetNode = hit.node;
                 if (!hit.editable) {
                     fastTapPoint(hit.cx, hit.cy, 5L);
-                    waitForNextUiEvent(45L);
+                    waitForNextUiEvent(55L);
                     List<UiItem> items2 = refreshTree(false, true);
                     UiItem ed = findEditableItem(items2);
                     if (ed != null && ed.node != null) {
@@ -2734,7 +3267,7 @@ public class SatsetDaemon {
                         targetNode = ed.node;
                     }
                 } else if (!hit.focused) {
-                    targetNode.performAction(1); // ACTION_FOCUS (~0.5ms, no 85ms click+sleep!)
+                    targetNode.performAction(1); // ACTION_FOCUS (~0.5ms)
                 }
 
                 String finalText = text;
@@ -2747,11 +3280,12 @@ public class SatsetDaemon {
                 boolean ok = targetNode.performAction(0x00200000, bundle);
                 if (!ok) {
                     fastTapPoint(hit.cx, hit.cy, 5L);
-                    waitForNextUiEvent(30L);
+                    waitForNextUiEvent(40L);
                     List<UiItem> items3 = refreshTree(false, true);
                     UiItem ed = findEditableItem(items3);
                     if (ed != null && ed.node != null) {
-                        ok = ed.node.performAction(0x00200000, bundle);
+                        targetNode = ed.node;
+                        ok = targetNode.performAction(0x00200000, bundle);
                     }
                 }
                 cachedTreeEventSeq = -1L;
@@ -2759,11 +3293,16 @@ public class SatsetDaemon {
                 if (!ok) {
                     return "FALLBACK_CLIPBOARD\t(" + hit.cx + "," + hit.cy + ")\t" + dt + "ms";
                 }
-                return "OK\tSET (" + hit.cx + "," + hit.cy + ") [#" + hit.index + "] len=" + finalText.length() + " in " + dt + "ms";
+                String res = "OK\tSET (" + hit.cx + "," + hit.cy + ") [#" + hit.index + "] len=" + finalText.length() + " in " + dt + "ms";
+                if (pressEnter) {
+                    res = res + " -> " + performSmartSubmit(targetNode);
+                }
+                return res;
             }
 
             case "SWIPE": {
                 ensureConnected();
+                ensureNotInTermux();
                 int x1 = Integer.parseInt(parts[1]);
                 int y1 = Integer.parseInt(parts[2]);
                 int x2 = Integer.parseInt(parts[3]);
@@ -2777,23 +3316,29 @@ public class SatsetDaemon {
 
             case "SCROLL": {
                 ensureConnected();
+                ensureNotInTermux();
                 String dir = parts.length > 1 ? parts[1].toLowerCase(Locale.ROOT).trim() : "down";
                 int steps = parts.length > 2 && !parts[2].isEmpty() ? Integer.parseInt(parts[2]) : 8;
-                int x1 = 610, y1 = 2050, x2 = 610, y2 = 600;
+                int[] dims = getScreenDimensions();
+                int midX = dims[0] / 2;
+                int topBound = Math.max(380, dims[1] / 5);
+                int bottomBound = Math.min(dims[1] - 380, (dims[1] * 4) / 5);
+
+                int x1 = midX, y1 = bottomBound, x2 = midX, y2 = topBound;
                 switch (dir) {
                     case "down":
                     case "next":
-                        x1 = 610; y1 = 2050; x2 = 610; y2 = 600;
+                        x1 = midX; y1 = bottomBound; x2 = midX; y2 = topBound;
                         break;
                     case "up":
                     case "prev":
-                        x1 = 610; y1 = 650; x2 = 610; y2 = 2100;
+                        x1 = midX; y1 = topBound; x2 = midX; y2 = bottomBound;
                         break;
                     case "left":
-                        x1 = 1050; y1 = 1350; x2 = 170; y2 = 1350;
+                        x1 = dims[0] - 180; y1 = dims[1] / 2; x2 = 180; y2 = dims[1] / 2;
                         break;
                     case "right":
-                        x1 = 170; y1 = 1350; x2 = 1050; y2 = 1350;
+                        x1 = 180; y1 = dims[1] / 2; x2 = dims[0] - 180; y2 = dims[1] / 2;
                         break;
                 }
                 boolean ok = fastSwipe(x1, y1, x2, y2, steps, 7L);
@@ -2827,7 +3372,11 @@ public class SatsetDaemon {
                         case "sleep": mSleepDevice.invoke(ic); ok = true; break;
                         case "enter":
                         case "search":
-                        case "done": ok = (Boolean) mSendKey.invoke(ic, 66, 0); break;
+                        case "done": {
+                            UiItem ed = findEditableItem(lastItems);
+                            String subRes = performSmartSubmit(ed != null ? ed.node : null);
+                            return subRes;
+                        }
                         case "del":
                         case "backspace": ok = (Boolean) mSendKey.invoke(ic, 67, 0); break;
                         case "paste": ok = (Boolean) mSendKey.invoke(ic, 279, 0); break;
@@ -2849,6 +3398,16 @@ public class SatsetDaemon {
                 boolean wantGone = "WAIT_GONE".equals(cmd);
                 String query = parts.length > 1 ? parts[1].trim() : "";
                 long timeoutMs = parts.length > 2 && !parts[2].isEmpty() ? Long.parseLong(parts[2]) : 5000L;
+                if (!wantGone && query.matches("\\d+") && timeoutMs == 5000L) {
+                    long ms = Long.parseLong(query);
+                    waitForActionReaction(uiEventSeq.get(), Math.min(ms, 300L));
+                    long rem = ms - (System.currentTimeMillis() - t0);
+                    if (rem > 0 && rem <= 2000L) {
+                        try { Thread.sleep(rem); } catch (InterruptedException ignored) {}
+                    }
+                    cachedTreeEventSeq = -1L;
+                    return "OK\tWAIT_SETTLE " + (System.currentTimeMillis() - t0) + "ms";
+                }
                 String[] candidates = query.split("\\|\\|");
                 long startWait = System.currentTimeMillis();
                 int pollCount = 0;

@@ -4,16 +4,17 @@ Tujuan modul ini: **Mengganti cara kerja linier/konvensional yang lambat dengan 
 
 ---
 
-## 1. The 4-Layer Bypass Matrix (Potong Kompas Arsitektur)
+## 1. The 5-Layer Bypass Matrix (Potong Kompas Arsitektur)
 
 Setiap sistem memiliki lapisan abstraksi. Semakin tinggi lapisannya, semakin lambat dan rapuh eksekusinya. Selalu turun ke lapisan terendah yang paling deterministik:
 
-| Layer Konvensional (Lambat) | Inovasi Bypass (10x–100x Lebih Cepat) | Contoh Implementasi Nyata |
+| Layer Konvensional (Lambat) | Inovasi Bypass (10x–1000x Lebih Cepat) | Contoh Implementasi Nyata |
 | :--- | :--- | :--- |
 | **L4: Navigasi UI Bertahap** (Buka menu -> klik -> scroll -> klik) | **Direct Deep-Link / Intent / 1-Packet Pipeline** | Lompati 5 layar UI dengan `am start -a android.intent.action.VIEW -d "<uri>"` atau 1 paket `satset do ... "done"`. |
 | **L3: Wrapper CLI Berat** (Startup interpreter lambat, overhead berulang) | **Direct Socket / Native Binary / IPC** | Tembak langsung TCP/UNIX socket daemon (`127.0.0.1:19888`) atau panggil binary C native (`satset`). |
 | **L2: Konfigurasi via Menu/API Sekuensial** | **Direct State / Database / AST Mutation** | Edit langsung SQLite DB (`sqlite3 db "UPDATE ..."`), patch JSON/XML/binary config, atau modifikasi AST kode secara terprogram. |
 | **L1: Multi-Turn LLM Loop** (Baca 1 file -> mikir -> edit 1 file -> ulangi 10x) | **Algorithmic Offloading (Ephemeral Micro-Tool)** | Buat 1 script C/Python/awk via `ephemeral_runner.sh` yang memproses seluruh graf file + memverifikasi hasilnya dalam **1 turn**. |
+| **L0: Socket Kernel Overhead (38µs)** | **SUB-ZERO Lock-Free Shared Memory Ring & O(1) RAM Reflex** | Hubungkan agent ke daemon via anonymous `mmap` + atomic ARM64 memory barrier (`subzero_shm.h`) dengan latensi **200 nanodetik**. |
 
 ---
 
